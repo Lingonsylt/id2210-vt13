@@ -64,7 +64,7 @@ public class Snapshot {
 		str += reportGraphStat();
 		str += reportDetailes();
 		str += "###\n";
-		
+
 		System.out.println(str);
 		FileIO.append(str, FILENAME);
 	}

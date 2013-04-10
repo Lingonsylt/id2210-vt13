@@ -6,7 +6,7 @@ import common.peer.PeerAddress;
 import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
 import java.io.IOException;
-import java.util.ArrayList;
+import java.util.*;
 import java.util.logging.Level;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
 import org.apache.lucene.document.Document;
@@ -86,7 +86,7 @@ public final class Search extends ComponentDefinition {
 
             Snapshot.updateNum(self, num);
             try {
-                addEntry(new StringBuilder(), "The Art of Computer Science", "100");
+                addEntry("The Art of Computer Science", "100");
             } catch (IOException ex) {
                 java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
                 System.exit(-1);
@@ -100,72 +100,129 @@ public final class Search extends ComponentDefinition {
     };
     Handler<WebRequest> handleWebRequest = new Handler<WebRequest>() {
         public void handle(WebRequest event) {
+            final String SEARCH_COMMAND = "search", ADD_COMMAND = "add";
+            List<String> allowedCommands = Arrays.asList(SEARCH_COMMAND, ADD_COMMAND);
+
             if (event.getDestination() != self.getPeerAddress().getId()) {
                 return;
             }
-
-            String[] args = event.getTarget().split("-");
-
             logger.debug("Handling Webpage Request");
+
+            org.mortbay.jetty.Request jettyRequest = event.getRequest();
+            String pathInfoString = jettyRequest.getPathInfo();
+            String command = "";
+            if (pathInfoString != null && !pathInfoString.equals("")) {
+                String[] pathInfos = event.getRequest().getPathInfo().split("/");
+                if (pathInfos.length != 0) {
+                    command = pathInfos[pathInfos.length - 1];
+                }
+            }
             WebResponse response;
-            if (args[0].compareToIgnoreCase("search") == 0) {
-                response = new WebResponse(searchPageHtml(args[1]), event, 1, 1);
-            } else if (args[0].compareToIgnoreCase("add") == 0) {
-                response = new WebResponse(addEntryHtml(args[1], args[2]), event, 1, 1);
+            if (!allowedCommands.contains(command)) {
+                response = WebHelpers.createBadRequestResponse(event, "Invalid command!: " + command);
             } else {
-                response = new WebResponse(searchPageHtml(event
-                        .getTarget()), event, 1, 1);
+                if (command.equals(SEARCH_COMMAND)) {
+                    String queryString = WebHelpers.getParamOrDefault(jettyRequest, "query", null);
+                    if (queryString != null) {
+                        String queryResult = null;
+                        try {
+                            queryResult = query(queryString);
+                        } catch (IOException e) {
+                            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, e);
+                        } catch (ParseException e) {
+                            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, e);
+                            e.printStackTrace();
+                        }
+                        if (queryResult != null) {
+                            response = WebHelpers.createDefaultRenderedResponse(event, "Search succeded!", queryResult);
+                        } else {
+                            response = WebHelpers.createErrorResponse(event, "Failure searching for " + queryString + "!<br />");
+                        }
+                    } else {
+                        response = WebHelpers.createBadRequestResponse(event, "Invalid query value");
+                    }
+
+                } else if (command.equals(ADD_COMMAND)) {
+                    String key = WebHelpers.getParamOrDefault(jettyRequest, "key", null);
+                    String value = WebHelpers.getParamOrDefault(jettyRequest, "value", null);
+                    if (key != null && value != null) {
+                        IOException addException = null;
+                        try {
+                            addEntry(value, key);
+                        } catch (IOException ex) {
+                            addException = ex;
+                            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+                        }
+                        if (addException == null) {
+                            response = WebHelpers.createDefaultRenderedResponse(event, "Uploaded item into network!", "Added " + key + " with value" + value + "!");
+                        } else {
+                            response = WebHelpers.createErrorResponse(event, "Failure adding " + key + " with value " + value + "!<br />" + addException.getMessage());
+                        }
+                    } else {
+                        response = WebHelpers.createBadRequestResponse(event, "Invalid key or value");
+                    }
+                } else {
+                    response = WebHelpers.createBadRequestResponse(event, "Invalid command");
+                }
             }
             trigger(response, webPort);
         }
     };
 
-    private String searchPageHtml(String title) {
-        StringBuilder sb = new StringBuilder("<!DOCTYPE html PUBLIC \"-//W3C");
-        sb.append("//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR");
-        sb.append("/xhtml1/DTD/xhtml1-transitional.dtd\"><html xmlns=\"http:");
-        sb.append("//www.w3.org/1999/xhtml\"><head><meta http-equiv=\"Conten");
-        sb.append("t-Type\" content=\"text/html; charset=utf-8\" />");
-        sb.append("<title>Kompics P2P Bootstrap Server</title>");
-        sb.append("<style type=\"text/css\"><!--.style2 {font-family: ");
-        sb.append("Arial, Helvetica, sans-serif; color: #0099FF;}--></style>");
-        sb.append("</head><body><h2 align=\"center\" class=\"style2\">");
-        sb.append("ID2210 (Decentralized Search for BitTorrent)</h2><br>");
-        try {
-            query(sb, title);
-        } catch (ParseException ex) {
-            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-            sb.append(ex.getMessage());
-        } catch (IOException ex) {
-            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-            sb.append(ex.getMessage());
+    static class WebHelpers {
+        public static WebResponse createBadRequestResponse(WebRequest event, String message) {
+            return new WebResponse(createBadRequestHtml(message), event, 1, 1);
         }
-        sb.append("</body></html>");
-        return sb.toString();
-    }
 
-    private String addEntryHtml(String title, String id) {
-        StringBuilder sb = new StringBuilder("<!DOCTYPE html PUBLIC \"-//W3C");
-        sb.append("//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR");
-        sb.append("/xhtml1/DTD/xhtml1-transitional.dtd\"><html xmlns=\"http:");
-        sb.append("//www.w3.org/1999/xhtml\"><head><meta http-equiv=\"Conten");
-        sb.append("t-Type\" content=\"text/html; charset=utf-8\" />");
-        sb.append("<title>Adding an Entry</title>");
-        sb.append("<style type=\"text/css\"><!--.style2 {font-family: ");
-        sb.append("Arial, Helvetica, sans-serif; color: #0099FF;}--></style>");
-        sb.append("</head><body><h2 align=\"center\" class=\"style2\">");
-        sb.append("ID2210 Uploaded Entry</h2><br>");
-        try {
-            addEntry(sb, title, id);
-        } catch (IOException ex) {
-            sb.append(ex.getMessage());
-            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+        public static String getParamOrDefault(org.mortbay.jetty.Request jettyRequest, String param, String defaultValue) {
+            return (jettyRequest.getParameter(param) == null ||
+                    jettyRequest.getParameter(param).equals("")) ?
+                    defaultValue : jettyRequest.getParameter(param);
         }
-        sb.append("</body></html>");
-        return sb.toString();
-    }
 
-    private void addEntry(StringBuilder sb, String title, String id) throws IOException {
+        public static WebResponse createErrorResponse(WebRequest event, String message) {
+            Map<String, String> params = new HashMap<String, String>();
+            params.put("title", "Error!");
+            params.put("message", message);
+            return new WebResponse(renderHtmlTemplate(getDefaultHtmlTemplate(), params), event, 1, 1);
+        }
+
+        public static WebResponse createDefaultRenderedResponse(WebRequest event, String title, String message) {
+            Map<String, String> params = new HashMap<String, String>();
+            params.put("title", title);
+            params.put("message", message);
+            return new WebResponse(renderHtmlTemplate(getDefaultHtmlTemplate(), params), event, 1, 1);
+        }
+
+        public static String getDefaultHtmlTemplate() {
+            StringBuilder sb = new StringBuilder("<!DOCTYPE html PUBLIC \"-//W3C");
+            sb.append("//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR");
+            sb.append("/xhtml1/DTD/xhtml1-transitional.dtd\"><html xmlns=\"http:");
+            sb.append("//www.w3.org/1999/xhtml\"><head><meta http-equiv=\"Conten");
+            sb.append("t-Type\" content=\"text/html; charset=utf-8\" />");
+            sb.append("<title>Adding an Entry</title>");
+            sb.append("<style type=\"text/css\"><!--.style2 {font-family: ");
+            sb.append("Arial, Helvetica, sans-serif; color: #0099FF;}--></style>");
+            sb.append("</head><body><h2 align=\"center\" class=\"style2\">");
+            sb.append("ID2210 {{ title }}</h2><br>{{ message }}</body></html>");
+            return sb.toString();
+        }
+
+        public static String renderHtmlTemplate(String html, Map<String, String> params) {
+            for (String key : params.keySet()) {
+                html = html.replaceAll("\\{\\{[\\s]?" + key + "[\\s]?}}", params.get(key));
+            }
+            return html;
+        }
+
+        public static String createBadRequestHtml(String message) {
+            Map<String, String> params = new HashMap<String, String>();
+            params.put("title", "Bad request!");
+            params.put("message", message);
+            return renderHtmlTemplate(getDefaultHtmlTemplate(), params);
+        }
+    }
+    private void addEntry(String title, String id) throws IOException {
         IndexWriter w = new IndexWriter(index, config);
         Document doc = new Document();
         doc.add(new TextField("title", title, Field.Store.YES));
@@ -175,14 +232,12 @@ public final class Search extends ComponentDefinition {
         doc.add(new StringField("id", id, Field.Store.YES));
         w.addDocument(doc);
         w.close();
-        
-        sb.append("Entry: (").append(title).append(", ").append(id).append(")");
     }
 
-    private String query(StringBuilder sb, String querystr) throws ParseException, IOException {
+    private String query(String queryString) throws ParseException, IOException {
 
         // the "title" arg specifies the default field to use when no field is explicitly specified in the query.
-        Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(querystr);
+        Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(queryString);
         IndexSearcher searcher = null;
         IndexReader reader = null;
         try {
@@ -199,6 +254,7 @@ public final class Search extends ComponentDefinition {
         searcher.search(q, collector);
         ScoreDoc[] hits = collector.topDocs().scoreDocs;
 
+        StringBuilder sb = new StringBuilder();
         // display results
         sb.append("<table><tr>Found ").append(hits.length).append(" entries.</tr>");
         for (int i = 0; i < hits.length; ++i) {

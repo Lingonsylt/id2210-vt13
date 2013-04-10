@@ -53,8 +53,10 @@ public class Snapshot {
 		str += verifyNetworkSize();
 		str += reportDetailes();
 		str += "###\n";
-		
-		System.out.println(str);
+
+        if (counter % 10000 == 1) {
+            System.out.println(str);
+        }
 		FileIO.append(str, FILENAME);
 	}
 
