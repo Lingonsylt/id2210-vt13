@@ -54,8 +54,8 @@ public class Snapshot {
 		str += reportDetailes();
 		str += "###\n";
 
-        if (counter % 10000 == 1) {
-            System.out.println(str);
+        if (counter % 10 == 1) {
+            //System.out.println(str);
         }
 		FileIO.append(str, FILENAME);
 	}

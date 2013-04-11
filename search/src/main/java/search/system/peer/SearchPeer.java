@@ -38,9 +38,9 @@ public final class SearchPeer extends ComponentDefinition {
 	Negative<PeerPort> peerPort = negative(PeerPort.class);
 	Positive<Network> network = positive(Network.class);
 	Positive<Timer> timer = positive(Timer.class);
-        Negative<Web> webPort = negative(Web.class);
+    Negative<Web> webPort = negative(Web.class);
 	
-        private Component cyclon, tman, search, bootstrap;
+    private Component cyclon, tman, search, bootstrap;
 	private int num;
 	private Address self;
 	private PeerAddress peerSelf;

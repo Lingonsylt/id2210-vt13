@@ -1,5 +1,6 @@
 package search.system.peer.search;
 
+import org.apache.lucene.search.*;
 import search.simulator.snapshot.Snapshot;
 import common.configuration.SearchConfiguration;
 import common.peer.PeerAddress;
@@ -19,10 +20,6 @@ import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.search.IndexSearcher;
-import org.apache.lucene.search.Query;
-import org.apache.lucene.search.ScoreDoc;
-import org.apache.lucene.search.TopScoreDocCollector;
 import org.apache.lucene.store.Directory;
 import org.apache.lucene.store.RAMDirectory;
 import org.apache.lucene.util.Version;
@@ -49,11 +46,13 @@ import tman.system.peer.tman.TManSamplePort;
 public final class Search extends ComponentDefinition {
 
     private static final Logger logger = LoggerFactory.getLogger(Search.class);
+    private static int luceneIndexCounter = 0;
     Positive<Network> networkPort = positive(Network.class);
     Positive<Timer> timerPort = positive(Timer.class);
     Negative<Web> webPort = negative(Web.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
     Positive<TManSamplePort> tmanSamplePort = positive(TManSamplePort.class);
+    private int maxLuceneIndex = 0;
     private PeerAddress self;
     private long period;
     private double num;
@@ -71,6 +70,9 @@ public final class Search extends ComponentDefinition {
         subscribe(handleWebRequest, webPort);
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManSample, tmanSamplePort);
+
+        subscribe(handleIndexExchangeRequest, networkPort);
+        subscribe(handleIndexExchangeResponse, networkPort);
     }
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
@@ -148,7 +150,7 @@ public final class Search extends ComponentDefinition {
                     if (key != null && value != null) {
                         IOException addException = null;
                         try {
-                            addEntry(value, key);
+                            addEntry(key, value);
                         } catch (IOException ex) {
                             addException = ex;
                             java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
@@ -222,16 +224,65 @@ public final class Search extends ComponentDefinition {
             return renderHtmlTemplate(getDefaultHtmlTemplate(), params);
         }
     }
-    private void addEntry(String title, String id) throws IOException {
+
+    private void addDocuments(List<Document> documents) throws IOException {
+        IndexWriter w = new IndexWriter(index, config);
+        for (Document doc : documents) {
+            w.addDocument(doc);
+            int docIndex = Integer.parseInt(doc.getField("index").stringValue());
+            if (docIndex > maxLuceneIndex) {
+                maxLuceneIndex = docIndex;
+            }
+        }
+        w.close();
+    }
+
+    private void addEntry(String key, String value) throws IOException {
+        maxLuceneIndex = luceneIndexCounter++;
+
         IndexWriter w = new IndexWriter(index, config);
         Document doc = new Document();
-        doc.add(new TextField("title", title, Field.Store.YES));
+        doc.add(new TextField("title", key, Field.Store.YES));
         // You may need to make the StringField searchable by NumericRangeQuery. See:
         // http://stackoverflow.com/questions/13958431/lucene-4-0-indexwriter-updatedocument-for-numeric-term
         // http://lucene.apache.org/core/4_2_0/core/org/apache/lucene/document/IntField.html
-        doc.add(new StringField("id", id, Field.Store.YES));
+        doc.add(new StringField("id", value, Field.Store.YES));
+        doc.add(new StringField("index", String.format("%05d", maxLuceneIndex), Field.Store.YES));
         w.addDocument(doc);
         w.close();
+    }
+
+    private List<Document> getDocumentsSinceIndex(int sinceIndex) {
+        List<Document> documents = new LinkedList<Document>();
+
+        String queryString = "index:[" + String.format("%05d", sinceIndex) + " TO 99999]";
+        Query q = null;
+        try {
+            q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(queryString);
+        } catch (ParseException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        }
+        IndexSearcher searcher = null;
+        IndexReader reader = null;
+        TopDocs results = null;
+        ScoreDoc[] hits = null;
+        try {
+            reader = DirectoryReader.open(index);
+            searcher = new IndexSearcher(reader);
+            results = searcher.search(q, 65536);
+            hits = results.scoreDocs;
+
+            for(int i=0;i<hits.length;++i) {
+                int docId = hits[i].doc;
+                Document d = searcher.doc(docId);
+                documents.add(d);
+            }
+        } catch (IOException ex) {
+            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+            System.exit(-1);
+        }
+
+        return documents;
     }
 
     private String query(String queryString) throws ParseException, IOException {
@@ -275,6 +326,11 @@ public final class Search extends ComponentDefinition {
         public void handle(CyclonSample event) {
             // receive a new list of neighbours
             ArrayList<PeerAddress> sampleNodes = event.getSample();
+
+            if (sampleNodes.size() > 0) {
+                trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), sampleNodes.get(0).getPeerAddress(), maxLuceneIndex), networkPort);
+            }
+
             // Pick a node or more, and exchange index with them
         }
     };
@@ -285,6 +341,36 @@ public final class Search extends ComponentDefinition {
             // receive a new list of neighbours
             ArrayList<PeerAddress> sampleNodes = event.getSample();
             // Pick a node or more, and exchange index with them
+        }
+    };
+
+    Handler<IndexExchangeRequest> handleIndexExchangeRequest = new Handler<IndexExchangeRequest>() {
+        @Override
+        public void handle(IndexExchangeRequest event) {
+            if (event.getMaxIndexID() < maxLuceneIndex) {
+                trigger(new IndexExchangeResponse(self.getPeerAddress(), self.getPeerId(), event.getSource(), getDocumentsSinceIndex(event.getMaxIndexID())), networkPort);
+            }
+        }
+    };
+
+    String documentListToString(List<Document> documents) {
+        String output = "Documents(";
+        for (Document doc : documents) {
+            output += doc.getField("index").stringValue();
+        }
+        output += ")";
+        return output;
+    }
+
+    Handler<IndexExchangeResponse> handleIndexExchangeResponse = new Handler<IndexExchangeResponse>() {
+        @Override
+        public void handle(IndexExchangeResponse event) {
+            //System.out.println(self.toString() + " <== " + event.getSourcePeerID() + ": " + documentListToString(event.documents));
+            try {
+                addDocuments(event.documents);
+            } catch (IOException e) {
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            }
         }
     };
 }
