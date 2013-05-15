@@ -3,6 +3,7 @@ package tman.simulator.snapshot;
 import common.peer.PeerAddress;
 
 import java.io.IOException;
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.TreeMap;
 
@@ -11,6 +12,7 @@ public class Snapshot {
 	private static TreeMap<PeerAddress, PeerInfo> peers = new TreeMap<PeerAddress, PeerInfo>();
 	private static int counter = 0;
 	private static String FILENAME = "tman.out";
+    private static BigInteger lowestPeerID = null;
 
 //-------------------------------------------------------------------
 	public static void init(int numOfStripes) {
@@ -59,7 +61,23 @@ public class Snapshot {
 		str += reportDetails();
 		str += "###\n";
 
+        boolean newLowestPeer = false;
+        for (PeerAddress peer : peersList) {
+            if (lowestPeerID == null || peer.getPeerId().compareTo(lowestPeerID) == -1) {
+                lowestPeerID = peer.getPeerId();
+                newLowestPeer = true;
+            }
+        }
+
+        if (newLowestPeer) {
+            System.out.println("Lowest peer: " + lowestPeerID);
+        }
+
+
         if (counter == 100) {
+            System.out.println("Number of peers: " + peers.size());
+            System.exit(1);
+
             Snapshot.printDotFile(peersList);
             System.out.println(str);
             Process p = null;

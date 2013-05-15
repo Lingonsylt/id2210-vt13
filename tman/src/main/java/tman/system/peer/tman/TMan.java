@@ -36,6 +36,14 @@ public final class TMan extends ComponentDefinition {
     private TManConfiguration tmanConfiguration;
     private ArrayList<PeerAddress> lastSeenCyclonPartners;
     private final int C = 6;
+    private boolean isLeader = false;
+    private int sameNeighborsRoundCount = 0;
+    private ArrayList<PeerAddress> tmanPartnersLastRound = new ArrayList<PeerAddress>();
+    private boolean isRunningElection = false;
+    private int electionYesVotes = 0;
+    private int electionParticipants = 0;
+    private PeerAddress leader = null;
+
 
     public class TManSchedule extends Timeout {
 
@@ -61,6 +69,7 @@ public final class TMan extends ComponentDefinition {
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManPartnersResponse, networkPort);
         subscribe(handleTManPartnersRequest, networkPort);
+        subscribe(handleLeaderElectionIncoming, networkPort);
     }
 
     void prettyPrintPeerAddressesList(List<PeerAddress> addresses) {
@@ -250,10 +259,87 @@ public final class TMan extends ComponentDefinition {
 
     }
 
+    public void initiateLeaderElection() {
+        isRunningElection = true;
+        electionYesVotes = 0;
+        electionParticipants = tmanPartners.size();
+
+        for(PeerAddress neighbor : tmanPartners) {
+            trigger(new LeaderElectionMessage(UUID.randomUUID(), "AM_I_LEGEND", self, neighbor), networkPort);
+        }
+    }
+
+    public boolean isLowestPeer(PeerAddress peer) {
+        for(PeerAddress neighbor : tmanPartners) {
+            if (neighbor.getPeerId().compareTo(peer.getPeerId()) == -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void checkForLeadership() {
+        if (isLeader || isRunningElection) {
+            return;
+        }
+
+        if (tmanPartnersLastRound.equals(tmanPartners)) {
+            sameNeighborsRoundCount++;
+        } else {
+            sameNeighborsRoundCount = 0;
+        }
+
+        if (sameNeighborsRoundCount == 3) {
+            if (isLowestPeer(self)) {
+                initiateLeaderElection();
+            }
+        }
+    }
+
+    public void announceLeadership() {
+        isLeader = true;
+        isRunningElection = false;
+        System.out.println("I AM LEGEND: " + self.getPeerId());
+        for(PeerAddress neighbor : tmanPartners) {
+            trigger(new LeaderElectionMessage(UUID.randomUUID(), "I_AM_LEGEND", self, neighbor), networkPort);
+        }
+    }
+
+
+    Handler<LeaderElectionMessage> handleLeaderElectionIncoming = new Handler<LeaderElectionMessage>() {
+        @Override
+        public void handle(LeaderElectionMessage message) {
+            if (message.getCommand().equals("AM_I_LEGEND")) {
+                if (isLowestPeer(message.getPeerSource())) {
+                    trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LEGEND", self, message.getPeerSource()), networkPort);
+                } else {
+                    trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LOSER", self, message.getPeerSource()), networkPort);
+                }
+            } else if (message.getCommand().equals("YOU_ARE_LEGEND")) {
+                if (isRunningElection) {
+                    electionYesVotes++;
+                    if (electionYesVotes > electionParticipants / 2) {
+                        announceLeadership();
+                    }
+                }
+            } else if (message.getCommand().equals("I_AM_LEGEND")) {
+                leader = message.getPeerSource();
+            } else if (message.getCommand().equals("YOU_ARE_LOSER")) {
+                isRunningElection = false;
+            }
+        }
+    };
+
+
+
 //-------------------------------------------------------------------
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
+            checkForLeadership();
+            tmanPartnersLastRound = new ArrayList<PeerAddress>(tmanPartners);
+
+
             ArrayList<PeerAddress> cyclonPartners = event.getSample();
 
             if (tmanPartners.size() != 0) {
