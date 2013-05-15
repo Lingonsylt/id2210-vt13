@@ -55,7 +55,7 @@ public class Snapshot {
 		str += "###\n";
 
         if (counter % 10 == 1) {
-            //System.out.println(str);
+            System.out.println(str);
         }
 		FileIO.append(str, FILENAME);
 	}

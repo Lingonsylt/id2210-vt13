@@ -39,7 +39,7 @@ public final class SimulatorInit extends Init {
     }
 
 //-------------------------------------------------------------------	
-    public TManConfiguration getTmanConfiguration() {
+    public TManConfiguration getTManConfiguration() {
         return this.tmanConfiguration;
     }
 

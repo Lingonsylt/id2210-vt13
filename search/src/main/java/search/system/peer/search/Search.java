@@ -52,6 +52,7 @@ public final class Search extends ComponentDefinition {
     Negative<Web> webPort = negative(Web.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
     Positive<TManSamplePort> tmanSamplePort = positive(TManSamplePort.class);
+    Random randomGenerator = new Random();
     private int maxLuceneIndex = 0;
     private PeerAddress self;
     private long period;
@@ -328,7 +329,7 @@ public final class Search extends ComponentDefinition {
             ArrayList<PeerAddress> sampleNodes = event.getSample();
 
             if (sampleNodes.size() > 0) {
-                trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), sampleNodes.get(0).getPeerAddress(), maxLuceneIndex), networkPort);
+                trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), sampleNodes.get(randomGenerator.nextInt(sampleNodes.size())).getPeerAddress(), maxLuceneIndex), networkPort);
             }
 
             // Pick a node or more, and exchange index with them

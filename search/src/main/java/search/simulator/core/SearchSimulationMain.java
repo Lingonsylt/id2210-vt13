@@ -2,6 +2,7 @@ package search.simulator.core;
 
 import common.configuration.SearchConfiguration;
 import common.configuration.CyclonConfiguration;
+import common.configuration.TManConfiguration;
 import common.simulation.SimulatorInit;
 import common.simulation.SimulatorPort;
 import java.io.IOException;
@@ -27,6 +28,7 @@ import se.sics.kompics.web.Web;
 import se.sics.kompics.web.jetty.JettyWebServer;
 import se.sics.kompics.web.jetty.JettyWebServerConfiguration;
 import se.sics.kompics.web.jetty.JettyWebServerInit;
+import tman.system.peer.tman.TManInit;
 
 public final class SearchSimulationMain extends ComponentDefinition {
 
@@ -53,10 +55,11 @@ public final class SearchSimulationMain extends ComponentDefinition {
         final BootstrapConfiguration bootConfiguration = BootstrapConfiguration.load(System.getProperty("bootstrap.configuration"));
         final CyclonConfiguration cyclonConfiguration = CyclonConfiguration.load(System.getProperty("cyclon.configuration"));
         final SearchConfiguration searchConfiguration = SearchConfiguration.load(System.getProperty("search.configuration"));
+        final TManConfiguration tmanConfiguration = TManConfiguration.load(System.getProperty("tman.configuration"));
 
         trigger(new BootstrapServerInit(bootConfiguration), bootstrapServer.getControl());
         trigger(new P2pSimulatorInit(simulatorScheduler, scenario, new KingLatencyMap()), p2pSimulator.getControl());
-        trigger(new SimulatorInit(bootConfiguration, cyclonConfiguration, null,
+        trigger(new SimulatorInit(bootConfiguration, cyclonConfiguration, tmanConfiguration,
                 searchConfiguration), simulator.getControl());
 
         // connect

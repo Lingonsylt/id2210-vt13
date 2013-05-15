@@ -1,6 +1,8 @@
 package tman.simulator.snapshot;
 
 import common.peer.PeerAddress;
+
+import java.io.IOException;
 import java.util.ArrayList;
 import java.util.TreeMap;
 
@@ -47,6 +49,7 @@ public class Snapshot {
 
 //-------------------------------------------------------------------
 	public static void report() {
+
 		PeerAddress[] peersList = new PeerAddress[peers.size()];
 		peers.keySet().toArray(peersList);
 		
@@ -55,10 +58,48 @@ public class Snapshot {
 		str += reportNetworkState();
 		str += reportDetails();
 		str += "###\n";
-		
-		System.out.println(str);
+
+        if (counter == 100) {
+            Snapshot.printDotFile(peersList);
+            System.out.println(str);
+            Process p = null;
+            try {
+
+                p = Runtime.getRuntime().exec("neato -Tpng /home/lingon/dev/dsearch/graph.dot -Goverlap=false -o /home/lingon/dev/dsearch/graph.png");
+                p.waitFor();
+                p = Runtime.getRuntime().exec("eog /home/lingon/dev/dsearch/graph.png");
+                p.waitFor();
+            } catch (IOException e) {
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+
+            } catch (InterruptedException e) {
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            }
+            System.exit(1);
+        }
+		//System.out.println(str);
 		FileIO.append(str, FILENAME);
-	}
+
+
+    }
+
+    public static void printDotFile(PeerAddress[] peersList) {
+        String output = "";
+        output += "digraph tman {\n";
+        output += "graph [ dpi = 300 ]; \n";
+        for (PeerAddress peerAddress : peersList) {
+            output += "\n    // start " + peerAddress.getPeerId() + "\n";
+            PeerInfo peerInfo = peers.get(peerAddress);
+            for (PeerAddress neighborAddress : peerInfo.getTManPartners()) {
+                output += "    " + peerAddress.getPeerId() + " -> " + neighborAddress.getPeerId() + ";\n";
+            }
+        }
+
+        output += "}\n";
+
+        System.out.println(output);
+        FileIO.write(output, "/home/lingon/dev/dsearch/graph.dot");
+    }
 
 //-------------------------------------------------------------------
 	private static String reportNetworkState() {
@@ -75,11 +116,12 @@ public class Snapshot {
 		String str = new String("---\n");
 
 		for (PeerAddress peer : peers.keySet()) {
+
 			peerInfo = peers.get(peer);
-		
+
 			str += "peer: " + peer;
 			str += ", cyclon parters: " + peerInfo.getCyclonPartners();
-			str += ", tman parters: " + peerInfo.getTManPartners();
+			str += ", tman parters (" + peerInfo.getTManPartners().size() + "): " + peerInfo.getTManPartners();
 			str += "\n";
 		}
 		

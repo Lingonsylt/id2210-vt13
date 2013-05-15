@@ -1,5 +1,6 @@
 package search.system.peer;
 
+import common.configuration.TManConfiguration;
 import common.peer.PeerPort;
 import common.peer.JoinPeer;
 import java.util.LinkedList;
@@ -30,6 +31,7 @@ import common.configuration.CyclonConfiguration;
 import cyclon.system.peer.cyclon.*;
 import se.sics.kompics.web.Web;
 import tman.system.peer.tman.TMan;
+import tman.system.peer.tman.TManInit;
 import tman.system.peer.tman.TManSamplePort;
 
 
@@ -70,6 +72,7 @@ public final class SearchPeer extends ComponentDefinition {
                         tman.getNegative(CyclonSamplePort.class));
 		connect(tman.getPositive(TManSamplePort.class), 
                         search.getNegative(TManSamplePort.class));
+
 		
 		subscribe(handleInit, control);
 		subscribe(handleJoin, peerPort);
@@ -84,12 +87,14 @@ public final class SearchPeer extends ComponentDefinition {
 			peerSelf = init.getPeerSelf();
 			self = peerSelf.getPeerAddress();
 			CyclonConfiguration cyclonConfiguration = init.getCyclonConfiguration();
+			TManConfiguration tmanConfiguration = init.getTManConfiguration();
 			aggregationConfiguration = init.getApplicationConfiguration();
 			
 			bootstrapRequestPeerCount = cyclonConfiguration.getBootstrapRequestPeerCount();
 
 			trigger(new CyclonInit(cyclonConfiguration), cyclon.getControl());
 			trigger(new BootstrapClientInit(self, init.getBootstrapConfiguration()), bootstrap.getControl());
+            trigger(new TManInit(peerSelf, tmanConfiguration, cyclonConfiguration), tman.getControl());
 		}
 	};
 

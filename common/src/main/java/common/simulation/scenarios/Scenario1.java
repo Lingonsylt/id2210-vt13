@@ -13,11 +13,12 @@ public class Scenario1 extends Scenario {
 		
 		StochasticProcess process2 = new StochasticProcess() {{
 			eventInterArrivalTime(constant(100));
-			raise(2, Operations.peerJoin(5), uniform(13));
+			raise(50, Operations.peerJoin(5), uniform(13));
 		}};
 
 		process1.start();
-		process2.startAfterTerminationOf(2000, process1);
+		process2.startAfterTerminationOf(1, process1);
+		//process2.startAfterTerminationOf(2000, process1);
 	}};
 	
 //-------------------------------------------------------------------

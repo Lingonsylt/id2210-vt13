@@ -1,5 +1,6 @@
 package search.system.peer;
 
+import common.configuration.TManConfiguration;
 import common.peer.PeerAddress;
 import common.configuration.SearchConfiguration;
 import common.configuration.CyclonConfiguration;
@@ -12,15 +13,20 @@ public final class SearchPeerInit extends Init {
 	private final int num;
 	private final BootstrapConfiguration bootstrapConfiguration;
 	private final CyclonConfiguration cyclonConfiguration;
+
+
+
+    private final TManConfiguration tmanConfiguration;
 	private final SearchConfiguration applicationConfiguration;
 
 //-------------------------------------------------------------------	
-	public SearchPeerInit(PeerAddress peerSelf, int num, BootstrapConfiguration bootstrapConfiguration, CyclonConfiguration cyclonConfiguration, SearchConfiguration applicationConfiguration) {
+	public SearchPeerInit(PeerAddress peerSelf, int num, BootstrapConfiguration bootstrapConfiguration, TManConfiguration tmanConfiguration, CyclonConfiguration cyclonConfiguration, SearchConfiguration applicationConfiguration) {
 		super();
 		this.peerSelf = peerSelf;
 		this.num = num;
 		this.bootstrapConfiguration = bootstrapConfiguration;
-		this.cyclonConfiguration = cyclonConfiguration;
+        this.tmanConfiguration = tmanConfiguration;
+        this.cyclonConfiguration = cyclonConfiguration;
 		this.applicationConfiguration = applicationConfiguration;
 	}
 
@@ -48,5 +54,9 @@ public final class SearchPeerInit extends Init {
 	public SearchConfiguration getApplicationConfiguration() {
 		return this.applicationConfiguration;
 	}
+
+    public TManConfiguration getTManConfiguration() {
+        return tmanConfiguration;
+    }
 
 }

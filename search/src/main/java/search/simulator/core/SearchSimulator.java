@@ -1,5 +1,6 @@
 package search.simulator.core;
 
+import common.configuration.TManConfiguration;
 import common.simulation.SimulatorPort;
 import java.math.BigInteger;
 import java.util.HashMap;
@@ -47,6 +48,7 @@ public final class SearchSimulator extends ComponentDefinition {
     private final HashMap<BigInteger, PeerAddress> peersAddress;
     private BootstrapConfiguration bootstrapConfiguration;
     private CyclonConfiguration cyclonConfiguration;
+    private TManConfiguration tmanConfiguration;
     private SearchConfiguration searchConfiguration;
     private int peerIdSequence;
     private BigInteger cyclonIdentifierSpaceSize;
@@ -75,6 +77,7 @@ public final class SearchSimulator extends ComponentDefinition {
 
             bootstrapConfiguration = init.getBootstrapConfiguration();
             cyclonConfiguration = init.getCyclonConfiguration();
+            tmanConfiguration = init.getTManConfiguration();
             searchConfiguration = init.getAggregationConfiguration();
 
             cyclonIdentifierSpaceSize = cyclonConfiguration.getIdentifierSpaceSize();
@@ -127,7 +130,8 @@ public final class SearchSimulator extends ComponentDefinition {
     Handler<GenerateReport> handleGenerateReport = new Handler<GenerateReport>() {
 
         public void handle(GenerateReport event) {
-            Snapshot.report();
+            //Snapshot.report();
+            tman.simulator.snapshot.Snapshot.report();
         }
     };
 
@@ -143,7 +147,7 @@ public final class SearchSimulator extends ComponentDefinition {
         connect(timer, peer.getNegative(Timer.class));
         connect(peer.getPositive(Web.class), webIncoming); //, new WebDestinationFilter(peerId));
 
-        trigger(new SearchPeerInit(peerAddress, num, bootstrapConfiguration, cyclonConfiguration, searchConfiguration), peer.getControl());
+        trigger(new SearchPeerInit(peerAddress, num, bootstrapConfiguration, tmanConfiguration, cyclonConfiguration, searchConfiguration), peer.getControl());
 
         trigger(new Start(), peer.getControl());
         peers.put(id, peer);
