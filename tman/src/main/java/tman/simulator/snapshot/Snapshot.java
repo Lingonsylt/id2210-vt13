@@ -74,10 +74,10 @@ public class Snapshot {
         }
 
 
-        if (counter == 3500) {
+        if (counter == -3500) {
             System.out.println("Number of peers: " + peers.size());
 
-
+            System.exit(1);
             Snapshot.printDotFile(peersList);
             //System.out.println(str);
             Process p = null;

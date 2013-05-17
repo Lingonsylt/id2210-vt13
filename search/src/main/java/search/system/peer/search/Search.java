@@ -67,6 +67,7 @@ public final class Search extends ComponentDefinition {
     private int sameNeighborsRoundCount = 0;
     ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
     private ArrayList<PeerAddress> tmanPartnersLastRound = new ArrayList<PeerAddress>();
+    private ArrayList<PeerAddress> topmostCyclonPartners = new ArrayList<PeerAddress>();
     private boolean isRunningElection = false;
     private int electionYesVotes = 0;
     private int electionParticipants = 0;
@@ -91,10 +92,18 @@ public final class Search extends ComponentDefinition {
 
         subscribe(handleLeaderRequestMessageTimeout, timerPort);
 
+
     }
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
         public void handle(SearchInit init) {
+            try {
+                IndexWriter w = new IndexWriter(index, config);
+                w.commit();
+                w.close();
+            } catch (IOException e) {
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            }
             self = init.getSelf();
             num = init.getNum();
             searchConfiguration = init.getConfiguration();
@@ -105,7 +114,7 @@ public final class Search extends ComponentDefinition {
             trigger(rst, timerPort);
 
             Snapshot.updateNum(self, num);
-            addEntryAtClient("The Art of Computer Science", "100");
+            //addEntryAtClient("The Art of Computer Science", "100", true);
 
         }
     };
@@ -163,9 +172,9 @@ public final class Search extends ComponentDefinition {
                     String value = WebHelpers.getParamOrDefault(jettyRequest, "value", null);
                     if (key != null && value != null) {
                         IOException addException = null;
-                        addEntryAtClient(key, value);
+                        addEntryAtClient(key, value, true);
                         if (addException == null) {
-                            response = WebHelpers.createDefaultRenderedResponse(event, "Uploaded item into network!", "Added " + key + " with value" + value + "!");
+                            response = WebHelpers.createDefaultRenderedResponse(event, "Uploaded item into network!", "Added " + key + " with value " + value + "!");
                         } else {
                             response = WebHelpers.createErrorResponse(event, "Failure adding " + key + " with value " + value + "!<br />" + addException.getMessage());
                         }
@@ -250,7 +259,7 @@ public final class Search extends ComponentDefinition {
 
     }*/
 
-    private void addEntryAtClient(String key, String value) {
+    private void addEntryAtClient(String key, String value, boolean retry) {
         if(isLeader) {
             try {
                 addEntryAtLeader(key, value);
@@ -259,22 +268,30 @@ public final class Search extends ComponentDefinition {
                 System.exit(-1);
             }
         } else {
-            /*
             UUID requestID = UUID.randomUUID();
-            SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(10000, 10000);
-            rst.setTimeoutEvent(new LeaderRequestMessageTimeout(rst, requestID));
-            trigger(rst, timerPort);
+
             LeaderRequestMessage message = null;
-            if (leader != null) {
-                message = new LeaderRequestMessage(requestID, key, value, self, leader);
-            } else {
+            PeerAddress recipient = leader;
+            if(recipient == null) {
+                recipient = getTopmostPartner();
+            }
+            if (recipient == null) {
                 message = new LeaderRequestMessage(requestID, key, value, self);
+            } else {
+                message = new LeaderRequestMessage(requestID, key, value, self, recipient);
             }
 
-            outstandingLeaderRequests.put(requestID, message);
-            if (leader != null) {
+            if (retry) {
+                SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(10000, 10000);
+                rst.setTimeoutEvent(new LeaderRequestMessageTimeout(rst, requestID));
+                trigger(rst, timerPort);
+                outstandingLeaderRequests.put(requestID, message);
+            }
+
+            if (recipient != null) {
+                System.out.println("Sending add " + key + ", " + message.getRequestId() + " to " + message.getPeerDestination().getPeerId());
                 trigger(message, networkPort);
-            } */
+            }
         }
 
     }
@@ -283,17 +300,18 @@ public final class Search extends ComponentDefinition {
         public void handle(LeaderRequestMessageTimeout message) {
             LeaderRequestMessage outstanding = outstandingLeaderRequests.get(message.getRequestID());
             if (outstanding != null) {
-                System.out.println("Retrying request " + outstanding.getRequestId() + " at leader " + leader);
-                addEntryAtClient(outstanding.getKey(), outstanding.getValue());
+                //System.out.println("Retrying request " + outstanding.getRequestId() + " at leader " + leader);
+                addEntryAtClient(outstanding.getKey(), outstanding.getValue(), true);
             } else {
-                System.out.println("Succeeded with request " + message.getRequestID() + " at leader " + leader);
+                //System.out.println("Succeeded with request " + message.getRequestID() + " at leader " + leader);
             }
         }
     };
 
 
     private void addEntryAtLeader(String key, String value) throws IOException {
-        maxLuceneIndex = nextId++;
+        maxLuceneIndex = ++nextId;
+        System.out.println("Leader max id: " + maxLuceneIndex);
         IndexWriter w = new IndexWriter(index, config);
         Document doc = new Document();
         doc.add(new TextField("title", key, Field.Store.YES));
@@ -304,6 +322,7 @@ public final class Search extends ComponentDefinition {
         doc.add(new StringField("index", String.format("%05d", maxLuceneIndex), Field.Store.YES));
         w.addDocument(doc);
         w.close();
+        System.out.println("Added entry: " + maxLuceneIndex + ", " + key + ", " + value);
     }
 
     private List<Document> getDocumentsSinceIndex(int sinceIndex) {
@@ -340,7 +359,6 @@ public final class Search extends ComponentDefinition {
     }
 
     private String query(String queryString) throws ParseException, IOException {
-
         // the "title" arg specifies the default field to use when no field is explicitly specified in the query.
         Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(queryString);
         IndexSearcher searcher = null;
@@ -355,7 +373,6 @@ public final class Search extends ComponentDefinition {
 
         int hitsPerPage = 10;
         TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
-
         searcher.search(q, collector);
         ScoreDoc[] hits = collector.topDocs().scoreDocs;
 
@@ -374,7 +391,63 @@ public final class Search extends ComponentDefinition {
         reader.close();
         return sb.toString();
     }
-    
+
+    private void addTopMostCyclonPartners(List<PeerAddress> parnters) {
+        for(PeerAddress peer : parnters) {
+            if (topmostCyclonPartners.size() < 10) {
+                topmostCyclonPartners.add(peer);
+            } else {
+                PeerAddress bottom = getBottomCyclonPartner();
+                if(peer.compareTo(bottom) == -1) {
+                    topmostCyclonPartners.remove(bottom);
+                    topmostCyclonPartners.add(peer);
+                }
+            }
+        }
+    }
+
+    private PeerAddress getBottomCyclonPartner() {
+        PeerAddress bottom = null;
+        for(PeerAddress peer : topmostCyclonPartners) {
+            if(bottom == null) {
+                bottom = peer;
+            } else {
+                if (peer.compareTo(bottom) == 1) {
+                    bottom = peer;
+                }
+            }
+        }
+        return bottom;
+    }
+
+    private PeerAddress getTopmostPartner() {
+        PeerAddress top = null;
+        for(PeerAddress peer : topmostCyclonPartners) {
+            if(top == null) {
+                top = peer;
+            } else {
+                if (peer.compareTo(top) == -1) {
+                    top = peer;
+                }
+            }
+        }
+
+        for(PeerAddress peer : tmanPartners) {
+            if(top == null) {
+                top = peer;
+            } else {
+                if (peer.compareTo(top) == -1) {
+                    top = peer;
+                }
+            }
+        }
+
+        if (top == null || self.compareTo(top) <= 0) {
+            return null;
+        }
+        return top;
+    }
+
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
@@ -383,7 +456,7 @@ public final class Search extends ComponentDefinition {
             ArrayList<PeerAddress> sampleNodes = event.getSample();
 
             if (sampleNodes.size() > 0) {
-                trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), sampleNodes.get(randomGenerator.nextInt(sampleNodes.size())).getPeerAddress(), maxLuceneIndex), networkPort);
+                addTopMostCyclonPartners(sampleNodes);
             }
 
             // Pick a node or more, and exchange index with them
@@ -393,8 +466,14 @@ public final class Search extends ComponentDefinition {
     Handler<TManSample> handleTManSample = new Handler<TManSample>() {
         @Override
         public void handle(TManSample event) {
+
+
             // receive a new list of neighbours
             tmanPartners = event.getSample();
+
+            if (tmanPartners.size() > 1) {
+                trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), tmanPartners.get(randomGenerator.nextInt(tmanPartners.size())).getPeerAddress(), maxLuceneIndex), networkPort);
+            }
             checkForLeadership();
             tmanPartnersLastRound = new ArrayList<PeerAddress>(tmanPartners);
         }
@@ -403,7 +482,11 @@ public final class Search extends ComponentDefinition {
     Handler<IndexExchangeRequest> handleIndexExchangeRequest = new Handler<IndexExchangeRequest>() {
         @Override
         public void handle(IndexExchangeRequest event) {
+            if (isLeader) {
+                System.out.println("Leader request for: " + event.getMaxIndexID());
+            }
             if (event.getMaxIndexID() < maxLuceneIndex) {
+                System.out.println(event.getSourcePeerID() + "Request for >" + event.getMaxIndexID() + " served with " + maxLuceneIndex + ", " + self.getPeerId());
                 trigger(new IndexExchangeResponse(self.getPeerAddress(), self.getPeerId(), event.getSource(), getDocumentsSinceIndex(event.getMaxIndexID())), networkPort);
             }
         }
@@ -441,7 +524,11 @@ public final class Search extends ComponentDefinition {
     }
 
     public boolean isLowestPeer(PeerAddress peer) {
-        for(PeerAddress neighbor : tmanPartners) {
+        return isLowestPeer(peer, tmanPartners);
+    }
+
+    public boolean isLowestPeer(PeerAddress peer, List<PeerAddress> partners) {
+        for(PeerAddress neighbor : partners) {
             if (neighbor.getPeerId().compareTo(peer.getPeerId()) == -1) {
                 return false;
             }
@@ -525,11 +612,16 @@ public final class Search extends ComponentDefinition {
     Handler<LeaderRequestMessage> handleLeaderRequestMessage = new Handler<LeaderRequestMessage>() {
         @Override
         public void handle(LeaderRequestMessage request) {
-            try {
-                addEntryAtLeader(request.getKey(), request.getValue());
-                trigger(new LeaderResponseMessage(request.getRequestId(), self, request.getPeerSource()), networkPort);
-            } catch (IOException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            if (isLeader) {
+                try {
+                    addEntryAtLeader(request.getKey(), request.getValue());
+                    trigger(new LeaderResponseMessage(request.getRequestId(), self, request.getPeerSource()), networkPort);
+                } catch (IOException e) {
+                    e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+                }
+            } else {
+                System.out.println("Relaying add " + request.getKey()+ ", " + request.getRequestId() + " to " + request.getPeerDestination().getPeerId());
+                addEntryAtClient(request.getKey(), request.getValue(), false);
             }
         }
     };
@@ -537,6 +629,7 @@ public final class Search extends ComponentDefinition {
     Handler<LeaderResponseMessage> handleLeaderResponseMessage = new Handler<LeaderResponseMessage>() {
         @Override
         public void handle(LeaderResponseMessage response) {
+            //System.out.println("Successfully added an entry at leader!");
             outstandingLeaderRequests.remove(response.getRequestId());
         }
     };
