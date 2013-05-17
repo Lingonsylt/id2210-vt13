@@ -54,12 +54,12 @@ public class Snapshot {
 
 		PeerAddress[] peersList = new PeerAddress[peers.size()];
 		peers.keySet().toArray(peersList);
-		
-		String str = new String();
-		str += "current time: " + counter++ + "\n";
+        counter++;
+		/*String str = new String();
+		str += "current time: " + counter + "\n";
 		str += reportNetworkState();
 		str += reportDetails();
-		str += "###\n";
+		str += "###\n";*/
 
         boolean newLowestPeer = false;
         for (PeerAddress peer : peersList) {
@@ -74,12 +74,12 @@ public class Snapshot {
         }
 
 
-        if (counter == 100) {
+        if (counter == 3500) {
             System.out.println("Number of peers: " + peers.size());
-            System.exit(1);
+
 
             Snapshot.printDotFile(peersList);
-            System.out.println(str);
+            //System.out.println(str);
             Process p = null;
             try {
 
@@ -96,7 +96,7 @@ public class Snapshot {
             System.exit(1);
         }
 		//System.out.println(str);
-		FileIO.append(str, FILENAME);
+		//FileIO.append(str, FILENAME);
 
 
     }
@@ -115,7 +115,7 @@ public class Snapshot {
 
         output += "}\n";
 
-        System.out.println(output);
+        //System.out.println(output);
         FileIO.write(output, "/home/lingon/dev/dsearch/graph.dot");
     }
 

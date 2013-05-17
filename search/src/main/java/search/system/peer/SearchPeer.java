@@ -73,8 +73,7 @@ public final class SearchPeer extends ComponentDefinition {
 		connect(tman.getPositive(TManSamplePort.class), 
                         search.getNegative(TManSamplePort.class));
 
-		
-		subscribe(handleInit, control);
+        subscribe(handleInit, control);
 		subscribe(handleJoin, peerPort);
 		subscribe(handleJoinCompleted, cyclon.getPositive(CyclonPort.class));
 		subscribe(handleBootstrapResponse, bootstrap.getPositive(P2pBootstrap.class));

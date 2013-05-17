@@ -131,7 +131,7 @@ public final class SearchSimulator extends ComponentDefinition {
 
         public void handle(GenerateReport event) {
             //Snapshot.report();
-            tman.simulator.snapshot.Snapshot.report();
+            //tman.simulator.snapshot.Snapshot.report();
         }
     };
 

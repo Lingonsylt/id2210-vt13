@@ -36,8 +36,7 @@ import se.sics.kompics.timer.Timer;
 import se.sics.kompics.web.Web;
 import se.sics.kompics.web.WebRequest;
 import se.sics.kompics.web.WebResponse;
-import tman.system.peer.tman.TManSample;
-import tman.system.peer.tman.TManSamplePort;
+import tman.system.peer.tman.*;
 
 /**
  * 
@@ -46,7 +45,6 @@ import tman.system.peer.tman.TManSamplePort;
 public final class Search extends ComponentDefinition {
 
     private static final Logger logger = LoggerFactory.getLogger(Search.class);
-    private static int luceneIndexCounter = 0;
     Positive<Network> networkPort = positive(Network.class);
     Positive<Timer> timerPort = positive(Timer.class);
     Negative<Web> webPort = negative(Web.class);
@@ -63,6 +61,17 @@ public final class Search extends ComponentDefinition {
     Directory index = new RAMDirectory();
     IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_42, analyzer);
 
+    private HashMap<UUID, LeaderRequestMessage> outstandingLeaderRequests = new HashMap<UUID, LeaderRequestMessage>();
+    private boolean isLeader = false;
+    private int nextId = 0;
+    private int sameNeighborsRoundCount = 0;
+    ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
+    private ArrayList<PeerAddress> tmanPartnersLastRound = new ArrayList<PeerAddress>();
+    private boolean isRunningElection = false;
+    private int electionYesVotes = 0;
+    private int electionParticipants = 0;
+    private PeerAddress leader = null;
+
 //-------------------------------------------------------------------	
     public Search() {
 
@@ -72,8 +81,16 @@ public final class Search extends ComponentDefinition {
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManSample, tmanSamplePort);
 
+        subscribe(handleLeaderElectionIncoming, networkPort);
+
+        subscribe(handleLeaderRequestMessage, networkPort);
+        subscribe(handleLeaderResponseMessage, networkPort);
+
         subscribe(handleIndexExchangeRequest, networkPort);
         subscribe(handleIndexExchangeResponse, networkPort);
+
+        subscribe(handleLeaderRequestMessageTimeout, timerPort);
+
     }
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
@@ -88,12 +105,8 @@ public final class Search extends ComponentDefinition {
             trigger(rst, timerPort);
 
             Snapshot.updateNum(self, num);
-            try {
-                addEntry("The Art of Computer Science", "100");
-            } catch (IOException ex) {
-                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-                System.exit(-1);
-            }
+            addEntryAtClient("The Art of Computer Science", "100");
+
         }
     };
 //-------------------------------------------------------------------	
@@ -150,12 +163,7 @@ public final class Search extends ComponentDefinition {
                     String value = WebHelpers.getParamOrDefault(jettyRequest, "value", null);
                     if (key != null && value != null) {
                         IOException addException = null;
-                        try {
-                            addEntry(key, value);
-                        } catch (IOException ex) {
-                            addException = ex;
-                            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-                        }
+                        addEntryAtClient(key, value);
                         if (addException == null) {
                             response = WebHelpers.createDefaultRenderedResponse(event, "Uploaded item into network!", "Added " + key + " with value" + value + "!");
                         } else {
@@ -238,9 +246,54 @@ public final class Search extends ComponentDefinition {
         w.close();
     }
 
-    private void addEntry(String key, String value) throws IOException {
-        maxLuceneIndex = luceneIndexCounter++;
+    /*private void addEntry(String key, String value) throws IOException {
 
+    }*/
+
+    private void addEntryAtClient(String key, String value) {
+        if(isLeader) {
+            try {
+                addEntryAtLeader(key, value);
+            } catch (IOException ex) {
+                java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
+                System.exit(-1);
+            }
+        } else {
+            /*
+            UUID requestID = UUID.randomUUID();
+            SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(10000, 10000);
+            rst.setTimeoutEvent(new LeaderRequestMessageTimeout(rst, requestID));
+            trigger(rst, timerPort);
+            LeaderRequestMessage message = null;
+            if (leader != null) {
+                message = new LeaderRequestMessage(requestID, key, value, self, leader);
+            } else {
+                message = new LeaderRequestMessage(requestID, key, value, self);
+            }
+
+            outstandingLeaderRequests.put(requestID, message);
+            if (leader != null) {
+                trigger(message, networkPort);
+            } */
+        }
+
+    }
+
+    Handler<LeaderRequestMessageTimeout> handleLeaderRequestMessageTimeout = new Handler<LeaderRequestMessageTimeout>() {
+        public void handle(LeaderRequestMessageTimeout message) {
+            LeaderRequestMessage outstanding = outstandingLeaderRequests.get(message.getRequestID());
+            if (outstanding != null) {
+                System.out.println("Retrying request " + outstanding.getRequestId() + " at leader " + leader);
+                addEntryAtClient(outstanding.getKey(), outstanding.getValue());
+            } else {
+                System.out.println("Succeeded with request " + message.getRequestID() + " at leader " + leader);
+            }
+        }
+    };
+
+
+    private void addEntryAtLeader(String key, String value) throws IOException {
+        maxLuceneIndex = nextId++;
         IndexWriter w = new IndexWriter(index, config);
         Document doc = new Document();
         doc.add(new TextField("title", key, Field.Store.YES));
@@ -325,6 +378,7 @@ public final class Search extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
+            tman.simulator.snapshot.Snapshot.report();
             // receive a new list of neighbours
             ArrayList<PeerAddress> sampleNodes = event.getSample();
 
@@ -340,8 +394,9 @@ public final class Search extends ComponentDefinition {
         @Override
         public void handle(TManSample event) {
             // receive a new list of neighbours
-            ArrayList<PeerAddress> sampleNodes = event.getSample();
-            // Pick a node or more, and exchange index with them
+            tmanPartners = event.getSample();
+            checkForLeadership();
+            tmanPartnersLastRound = new ArrayList<PeerAddress>(tmanPartners);
         }
     };
 
@@ -372,6 +427,117 @@ public final class Search extends ComponentDefinition {
             } catch (IOException e) {
                 e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
+        }
+    };
+
+    public void initiateLeaderElection() {
+        isRunningElection = true;
+        electionYesVotes = 0;
+        electionParticipants = tmanPartners.size();
+
+        for(PeerAddress neighbor : tmanPartners) {
+            trigger(new LeaderElectionMessage(UUID.randomUUID(), "AM_I_LEGEND", self, neighbor), networkPort);
+        }
+    }
+
+    public boolean isLowestPeer(PeerAddress peer) {
+        for(PeerAddress neighbor : tmanPartners) {
+            if (neighbor.getPeerId().compareTo(peer.getPeerId()) == -1) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    public void checkForLeadership() {
+        if(isRunningElection) {
+            return;
+        }
+
+        if (isLeader) {
+            if (!isLowestPeer(self)) {
+                isLeader = false;
+                System.out.println("I AM LOSER! " + self.getPeerId());
+            }
+        } else {
+            if (leader != null && !isLowestPeer(leader)) {
+                trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LOSER", self, leader), networkPort);
+            }
+        }
+
+        if (tmanPartnersLastRound.equals(tmanPartners)) {
+            sameNeighborsRoundCount++;
+        } else {
+            sameNeighborsRoundCount = 0;
+        }
+
+        if (tmanPartners.size() == TMan.C && sameNeighborsRoundCount == 3) {
+            if (isLowestPeer(self)) {
+                initiateLeaderElection();
+            }
+        }
+    }
+
+    public void announceLeadership() {
+        isLeader = true;
+        isRunningElection = false;
+        System.out.println("I AM LEGEND: " + self.getPeerId());
+        for(PeerAddress neighbor : tmanPartners) {
+            trigger(new LeaderElectionMessage(UUID.randomUUID(), "I_AM_LEGEND", self, neighbor), networkPort);
+        }
+    }
+    private String prettyPrintPeerAddressesList(List<PeerAddress> addresses) {
+        String output = "";
+        for (PeerAddress t : addresses) {
+            output += t.toString() + ", ";
+        }
+        return output;
+    }
+
+    Handler<LeaderElectionMessage> handleLeaderElectionIncoming = new Handler<LeaderElectionMessage>() {
+        @Override
+        public void handle(LeaderElectionMessage message) {
+            if (message.getCommand().equals("AM_I_LEGEND")) {
+                if (isLowestPeer(message.getPeerSource())) {
+                    trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LEGEND", nextId, self, message.getPeerSource()), networkPort);
+                } else {
+                    trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LOSER", self, message.getPeerSource()), networkPort);
+                }
+            } else if (message.getCommand().equals("YOU_ARE_LEGEND")) {
+                if (isRunningElection) {
+                    electionYesVotes++;
+                    if (electionYesVotes > electionParticipants / 2) {
+                        announceLeadership();
+                    }
+                }
+            } else if (message.getCommand().equals("I_AM_LEGEND")) {
+                leader = message.getPeerSource();
+            } else if (message.getCommand().equals("YOU_ARE_LOSER")) {
+                if (isLeader) {
+                    System.out.println("I AM LOSER! " + self.getPeerId());
+                    isLeader = false;
+                }
+                isRunningElection = false;
+            }
+        }
+    };
+
+    Handler<LeaderRequestMessage> handleLeaderRequestMessage = new Handler<LeaderRequestMessage>() {
+        @Override
+        public void handle(LeaderRequestMessage request) {
+            try {
+                addEntryAtLeader(request.getKey(), request.getValue());
+                trigger(new LeaderResponseMessage(request.getRequestId(), self, request.getPeerSource()), networkPort);
+            } catch (IOException e) {
+                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            }
+        }
+    };
+
+    Handler<LeaderResponseMessage> handleLeaderResponseMessage = new Handler<LeaderResponseMessage>() {
+        @Override
+        public void handle(LeaderResponseMessage response) {
+            outstandingLeaderRequests.remove(response.getRequestId());
         }
     };
 }
