@@ -3,10 +3,12 @@ package search.simulator.snapshot;
 import java.util.ArrayList;
 
 import common.peer.PeerAddress;
+import search.system.peer.search.Search;
 
 public class PeerInfo {
 	private double num;
 	private ArrayList<PeerAddress> cyclonPartners;
+    private Search search;
 
 //-------------------------------------------------------------------
 	public PeerInfo() {
@@ -17,6 +19,10 @@ public class PeerInfo {
 	public void updateNum(double num) {
 		this.num = num;
 	}
+
+    public void updateSearch(Search search) {
+        this.search = search;
+    }
 
 //-------------------------------------------------------------------
 	public void updateNum(int num) {
@@ -32,6 +38,10 @@ public class PeerInfo {
 	public double getNum() {
 		return this.num;
 	}
+
+    public Search getSearch() {
+        return search;
+    }
 
 //-------------------------------------------------------------------
 	public ArrayList<PeerAddress> getCyclonPartners() {

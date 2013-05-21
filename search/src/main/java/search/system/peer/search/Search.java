@@ -1,6 +1,7 @@
 package search.system.peer.search;
 
 import org.apache.lucene.search.*;
+import se.sics.kompics.timer.ScheduleTimeout;
 import search.simulator.snapshot.Snapshot;
 import common.configuration.SearchConfiguration;
 import common.peer.PeerAddress;
@@ -72,12 +73,14 @@ public final class Search extends ComponentDefinition {
     private int electionYesVotes = 0;
     private int electionParticipants = 0;
     private PeerAddress leader = null;
+    private Search that = this;
 
 //-------------------------------------------------------------------	
     public Search() {
 
         subscribe(handleInit, control);
         subscribe(handleUpdateIndex, timerPort);
+        subscribe(handleInspectTrigger, timerPort);
         subscribe(handleWebRequest, webPort);
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManSample, tmanSamplePort);
@@ -118,19 +121,36 @@ public final class Search extends ComponentDefinition {
 
         }
     };
+
+    public boolean isLeader() {
+        return isLeader;
+    }
+
 //-------------------------------------------------------------------	
     Handler<UpdateIndexTimeout> handleUpdateIndex = new Handler<UpdateIndexTimeout>() {
         public void handle(UpdateIndexTimeout event) {
         }
     };
+
+    Handler<InspectTrigger> handleInspectTrigger = new Handler<InspectTrigger>() {
+        public void handle(InspectTrigger trigger) {
+            tman.simulator.snapshot.Snapshot.inspectOverlay(self.getPeerId());
+        }
+    };
+
     Handler<WebRequest> handleWebRequest = new Handler<WebRequest>() {
         public void handle(WebRequest event) {
-            final String SEARCH_COMMAND = "search", ADD_COMMAND = "add";
-            List<String> allowedCommands = Arrays.asList(SEARCH_COMMAND, ADD_COMMAND);
-
+            if (event == null || self.getPeerAddress() == null) {
+                System.out.println("######  BONKERS!!!!!!!!!!!!!!!!!!!!  ########");
+                return;
+            }
             if (event.getDestination() != self.getPeerAddress().getId()) {
                 return;
             }
+
+            final String SEARCH_COMMAND = "search", ADD_COMMAND = "add", INSPECT_OVERLAY_COMMAND = "inspect";
+            List<String> allowedCommands = Arrays.asList(SEARCH_COMMAND, ADD_COMMAND, INSPECT_OVERLAY_COMMAND);
+
             logger.debug("Handling Webpage Request");
 
             org.mortbay.jetty.Request jettyRequest = event.getRequest();
@@ -146,7 +166,13 @@ public final class Search extends ComponentDefinition {
             if (!allowedCommands.contains(command)) {
                 response = WebHelpers.createBadRequestResponse(event, "Invalid command!: " + command);
             } else {
-                if (command.equals(SEARCH_COMMAND)) {
+                if (command.equals(INSPECT_OVERLAY_COMMAND)) {
+                    response = WebHelpers.createDefaultRenderedResponse(event, "Overlay drawn!", "By node " + self.getPeerId());
+                    ScheduleTimeout rst = new ScheduleTimeout(1);
+                    rst.setTimeoutEvent(new InspectTrigger(rst));
+                    trigger(rst, timerPort);
+
+                } else if (command.equals(SEARCH_COMMAND)) {
                     String queryString = WebHelpers.getParamOrDefault(jettyRequest, "query", null);
                     if (queryString != null) {
                         String queryResult = null;
@@ -185,6 +211,7 @@ public final class Search extends ComponentDefinition {
                     response = WebHelpers.createBadRequestResponse(event, "Invalid command");
                 }
             }
+            System.out.println("Ending web request");
             trigger(response, webPort);
         }
     };
@@ -282,14 +309,13 @@ public final class Search extends ComponentDefinition {
             }
 
             if (retry) {
-                SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(10000, 10000);
+                ScheduleTimeout rst = new ScheduleTimeout(10000);
                 rst.setTimeoutEvent(new LeaderRequestMessageTimeout(rst, requestID));
                 trigger(rst, timerPort);
                 outstandingLeaderRequests.put(requestID, message);
             }
 
             if (recipient != null) {
-                System.out.println("Sending add " + key + ", " + message.getRequestId() + " to " + message.getPeerDestination().getPeerId());
                 trigger(message, networkPort);
             }
         }
@@ -309,9 +335,14 @@ public final class Search extends ComponentDefinition {
     };
 
 
+    public int getMaxLuceneIndex() {
+        return maxLuceneIndex;
+    }
+
     private void addEntryAtLeader(String key, String value) throws IOException {
         maxLuceneIndex = ++nextId;
-        System.out.println("Leader max id: " + maxLuceneIndex);
+        System.out.println("Item added: " + maxLuceneIndex);
+        Snapshot.updateMaxLeaderIndex(maxLuceneIndex);
         IndexWriter w = new IndexWriter(index, config);
         Document doc = new Document();
         doc.add(new TextField("title", key, Field.Store.YES));
@@ -322,7 +353,6 @@ public final class Search extends ComponentDefinition {
         doc.add(new StringField("index", String.format("%05d", maxLuceneIndex), Field.Store.YES));
         w.addDocument(doc);
         w.close();
-        System.out.println("Added entry: " + maxLuceneIndex + ", " + key + ", " + value);
     }
 
     private List<Document> getDocumentsSinceIndex(int sinceIndex) {
@@ -378,11 +408,12 @@ public final class Search extends ComponentDefinition {
 
         StringBuilder sb = new StringBuilder();
         // display results
-        sb.append("<table><tr>Found ").append(hits.length).append(" entries.</tr>");
+        sb.append("<div>Found ").append(hits.length).append(" entries.</div>");
+        sb.append("<table><tr><td>index</td><td>title</td><td>value</td>");
         for (int i = 0; i < hits.length; ++i) {
             int docId = hits[i].doc;
             Document d = searcher.doc(docId);
-            sb.append("<tr>").append(i + 1).append(". ").append(d.get("id")).append("\t").append(d.get("title")).append("</tr>");
+            sb.append("<tr><td>").append(d.get("index")).append("</td><td>").append(d.get("title")).append("</td><td>").append(d.get("id")).append("</td></tr>");
         }
         sb.append("</table>");
 
@@ -451,6 +482,8 @@ public final class Search extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
+            Snapshot.updateSearch(self, that);
+            Snapshot.report();
             tman.simulator.snapshot.Snapshot.report();
             // receive a new list of neighbours
             ArrayList<PeerAddress> sampleNodes = event.getSample();
@@ -482,11 +515,7 @@ public final class Search extends ComponentDefinition {
     Handler<IndexExchangeRequest> handleIndexExchangeRequest = new Handler<IndexExchangeRequest>() {
         @Override
         public void handle(IndexExchangeRequest event) {
-            if (isLeader) {
-                System.out.println("Leader request for: " + event.getMaxIndexID());
-            }
             if (event.getMaxIndexID() < maxLuceneIndex) {
-                System.out.println(event.getSourcePeerID() + "Request for >" + event.getMaxIndexID() + " served with " + maxLuceneIndex + ", " + self.getPeerId());
                 trigger(new IndexExchangeResponse(self.getPeerAddress(), self.getPeerId(), event.getSource(), getDocumentsSinceIndex(event.getMaxIndexID())), networkPort);
             }
         }
@@ -544,7 +573,6 @@ public final class Search extends ComponentDefinition {
         if (isLeader) {
             if (!isLowestPeer(self)) {
                 isLeader = false;
-                System.out.println("I AM LOSER! " + self.getPeerId());
             }
         } else {
             if (leader != null && !isLowestPeer(leader)) {
@@ -568,7 +596,7 @@ public final class Search extends ComponentDefinition {
     public void announceLeadership() {
         isLeader = true;
         isRunningElection = false;
-        System.out.println("I AM LEGEND: " + self.getPeerId());
+        //System.out.println("I AM LEGEND: " + self.getPeerId());
         for(PeerAddress neighbor : tmanPartners) {
             trigger(new LeaderElectionMessage(UUID.randomUUID(), "I_AM_LEGEND", self, neighbor), networkPort);
         }
@@ -601,7 +629,7 @@ public final class Search extends ComponentDefinition {
                 leader = message.getPeerSource();
             } else if (message.getCommand().equals("YOU_ARE_LOSER")) {
                 if (isLeader) {
-                    System.out.println("I AM LOSER! " + self.getPeerId());
+                    //System.out.println("I AM LOSER! " + self.getPeerId());
                     isLeader = false;
                 }
                 isRunningElection = false;
@@ -620,7 +648,6 @@ public final class Search extends ComponentDefinition {
                     e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
                 }
             } else {
-                System.out.println("Relaying add " + request.getKey()+ ", " + request.getRequestId() + " to " + request.getPeerDestination().getPeerId());
                 addEntryAtClient(request.getKey(), request.getValue(), false);
             }
         }

@@ -49,50 +49,38 @@ public class Snapshot {
 		peerInfo.updateCyclonPartners(partners);
 	}
 
+    public static void inspectOverlay(BigInteger highlightPeer) {
+        PeerAddress[] peersList = new PeerAddress[peers.size()];
+        peers.keySet().toArray(peersList);
+
+        Snapshot.printDotFile(peersList, highlightPeer);
+        //System.out.println(str);
+        Process p = null;
+        try {
+
+            p = Runtime.getRuntime().exec("neato -Tpng /home/lingon/dev/dsearch/graph.dot -Goverlap=false -o /home/lingon/dev/dsearch/graph.png");
+            p.waitFor();
+            p = Runtime.getRuntime().exec("eog /home/lingon/dev/dsearch/graph.png");
+            p.waitFor();
+        } catch (IOException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+
+        } catch (InterruptedException e) {
+            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+        }
+    }
 //-------------------------------------------------------------------
 	public static void report() {
 
 		PeerAddress[] peersList = new PeerAddress[peers.size()];
 		peers.keySet().toArray(peersList);
         counter++;
-		/*String str = new String();
-		str += "current time: " + counter + "\n";
-		str += reportNetworkState();
-		str += reportDetails();
-		str += "###\n";*/
-
-        boolean newLowestPeer = false;
-        for (PeerAddress peer : peersList) {
-            if (lowestPeerID == null || peer.getPeerId().compareTo(lowestPeerID) == -1) {
-                lowestPeerID = peer.getPeerId();
-                newLowestPeer = true;
-            }
-        }
-
-        if (newLowestPeer) {
-            System.out.println("Lowest peer: " + lowestPeerID);
-        }
-
 
         if (counter == -3500) {
             System.out.println("Number of peers: " + peers.size());
 
             System.exit(1);
-            Snapshot.printDotFile(peersList);
-            //System.out.println(str);
-            Process p = null;
-            try {
-
-                p = Runtime.getRuntime().exec("neato -Tpng /home/lingon/dev/dsearch/graph.dot -Goverlap=false -o /home/lingon/dev/dsearch/graph.png");
-                p.waitFor();
-                p = Runtime.getRuntime().exec("eog /home/lingon/dev/dsearch/graph.png");
-                p.waitFor();
-            } catch (IOException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-
-            } catch (InterruptedException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-            }
+            Snapshot.inspectOverlay(null);
             System.exit(1);
         }
 		//System.out.println(str);
@@ -101,13 +89,19 @@ public class Snapshot {
 
     }
 
-    public static void printDotFile(PeerAddress[] peersList) {
+    public static void printDotFile(PeerAddress[] peersList, BigInteger highlightPeer) {
         String output = "";
         output += "digraph tman {\n";
         output += "graph [ dpi = 300 ]; \n";
         for (PeerAddress peerAddress : peersList) {
             output += "\n    // start " + peerAddress.getPeerId() + "\n";
             PeerInfo peerInfo = peers.get(peerAddress);
+
+            if (peerAddress.getPeerId().equals(highlightPeer)) {
+                output += "    " + peerAddress.getPeerId() + " [style=bold, color=blue];";
+
+            }
+
             for (PeerAddress neighborAddress : peerInfo.getTManPartners()) {
                 output += "    " + peerAddress.getPeerId() + " -> " + neighborAddress.getPeerId() + ";\n";
             }
