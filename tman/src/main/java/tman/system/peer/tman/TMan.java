@@ -37,8 +37,6 @@ public final class TMan extends ComponentDefinition {
     private ArrayList<PeerAddress> lastSeenCyclonPartners;
     public static final int C = 6;
 
-
-
     public class TManSchedule extends Timeout {
 
         public TManSchedule(SchedulePeriodicTimeout request) {
@@ -63,14 +61,15 @@ public final class TMan extends ComponentDefinition {
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManPartnersResponse, networkPort);
         subscribe(handleTManPartnersRequest, networkPort);
+        subscribe(handleTManKillNode, tmanPartnersPort);
     }
 
-    void prettyPrintPeerAddressesList(List<PeerAddress> addresses) {
+    String prettyPrintPeerAddressesList(List<PeerAddress> addresses) {
         String output = "";
         for (PeerAddress t : addresses) {
             output += t.toString() + ", ";
         }
-        System.out.println(output);
+        return output;
     }
 //-------------------------------------------------------------------	
     Handler<TManInit> handleInit = new Handler<TManInit>() {
@@ -316,6 +315,14 @@ public final class TMan extends ComponentDefinition {
         }
         return output;
     }
+
+    Handler<TManKillNode> handleTManKillNode = new Handler<TManKillNode>() {
+        @Override
+        public void handle(TManKillNode message) {
+            tmanPartners.remove(message.getNode());
+        }
+    };
+
 //-------------------------------------------------------------------	
     Handler<ExchangeMsg.Request> handleTManPartnersRequest = new Handler<ExchangeMsg.Request>() {
         @Override

@@ -4,4 +4,5 @@ import se.sics.kompics.PortType;
 
 public final class TManSamplePort extends PortType {{
 	positive(TManSample.class);
+	negative(TManKillNode.class);
 }}

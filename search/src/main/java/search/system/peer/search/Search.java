@@ -8,6 +8,7 @@ import common.peer.PeerAddress;
 import cyclon.system.peer.cyclon.CyclonSample;
 import cyclon.system.peer.cyclon.CyclonSamplePort;
 import java.io.IOException;
+import java.math.BigInteger;
 import java.util.*;
 import java.util.logging.Level;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -74,6 +75,8 @@ public final class Search extends ComponentDefinition {
     private int electionParticipants = 0;
     private PeerAddress leader = null;
     private Search that = this;
+    private HashMap<PeerAddress, UUID> outstandingElectorHearbeats = new HashMap<PeerAddress, UUID>();
+    private HashMap<PeerAddress, Boolean> aliveElectors = new HashMap<PeerAddress, Boolean>();
 
 //-------------------------------------------------------------------	
     public Search() {
@@ -81,6 +84,7 @@ public final class Search extends ComponentDefinition {
         subscribe(handleInit, control);
         subscribe(handleUpdateIndex, timerPort);
         subscribe(handleInspectTrigger, timerPort);
+
         subscribe(handleWebRequest, webPort);
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManSample, tmanSamplePort);
@@ -94,6 +98,7 @@ public final class Search extends ComponentDefinition {
         subscribe(handleIndexExchangeResponse, networkPort);
 
         subscribe(handleLeaderRequestMessageTimeout, timerPort);
+        subscribe(handleLeaderHeartbeatTimeout, timerPort);
 
 
     }
@@ -322,6 +327,21 @@ public final class Search extends ComponentDefinition {
 
     }
 
+    Handler<LeaderHeartbeatTimeout> handleLeaderHeartbeatTimeout = new Handler<LeaderHeartbeatTimeout>() {
+        public void handle(LeaderHeartbeatTimeout message) {
+            if (outstandingElectorHearbeats.containsKey(message.getElector()) && outstandingElectorHearbeats.get(message.getElector()).equals(message.getRequestID())) {
+                if (message.getElector().equals(leader)) {
+                    //System.out.println("Leader heartbeat timeout! Initiating leader election: " + self.getPeerId());
+                    //System.out.println("Removing " + message.getElector().getPeerId() + ": " + tmanPartners.remove(message.getElector()));
+                    initiateLeaderElection();
+                }
+                aliveElectors.put(message.getElector(), false);
+                outstandingElectorHearbeats.remove(message.getElector());
+                trigger(new TManKillNode(message.getElector()), tmanSamplePort);
+            }
+        }
+    };
+
     Handler<LeaderRequestMessageTimeout> handleLeaderRequestMessageTimeout = new Handler<LeaderRequestMessageTimeout>() {
         public void handle(LeaderRequestMessageTimeout message) {
             LeaderRequestMessage outstanding = outstandingLeaderRequests.get(message.getRequestID());
@@ -495,7 +515,15 @@ public final class Search extends ComponentDefinition {
             // Pick a node or more, and exchange index with them
         }
     };
-    
+
+    void updateAliveElectorsStatus() {
+        for(PeerAddress peer : tmanPartners) {
+            if(!aliveElectors.containsKey(peer)) {
+                aliveElectors.put(peer, true);
+            }
+        }
+    }
+
     Handler<TManSample> handleTManSample = new Handler<TManSample>() {
         @Override
         public void handle(TManSample event) {
@@ -507,7 +535,10 @@ public final class Search extends ComponentDefinition {
             if (tmanPartners.size() > 1) {
                 trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), tmanPartners.get(randomGenerator.nextInt(tmanPartners.size())).getPeerAddress(), maxLuceneIndex), networkPort);
             }
+
             checkForLeadership();
+            heartbeatElectors();
+            updateAliveElectorsStatus();
             tmanPartnersLastRound = new ArrayList<PeerAddress>(tmanPartners);
         }
     };
@@ -543,12 +574,15 @@ public final class Search extends ComponentDefinition {
     };
 
     public void initiateLeaderElection() {
-        isRunningElection = true;
-        electionYesVotes = 0;
-        electionParticipants = tmanPartners.size();
+        if (!isLeader && !isRunningElection) {
+            Snapshot.leaderElectionStarted();
+            isRunningElection = true;
+            electionYesVotes = 0;
+            electionParticipants = tmanPartners.size();
 
-        for(PeerAddress neighbor : tmanPartners) {
-            trigger(new LeaderElectionMessage(UUID.randomUUID(), "AM_I_LEGEND", self, neighbor), networkPort);
+            for(PeerAddress neighbor : tmanPartners) {
+                trigger(new LeaderElectionMessage(UUID.randomUUID(), "AM_I_LEGEND", self, neighbor), networkPort);
+            }
         }
     }
 
@@ -558,11 +592,27 @@ public final class Search extends ComponentDefinition {
 
     public boolean isLowestPeer(PeerAddress peer, List<PeerAddress> partners) {
         for(PeerAddress neighbor : partners) {
-            if (neighbor.getPeerId().compareTo(peer.getPeerId()) == -1) {
+            if (aliveElectors.containsKey(neighbor) && aliveElectors.get(neighbor) && neighbor.getPeerId().compareTo(peer.getPeerId()) == -1) {
                 return false;
             }
         }
         return true;
+    }
+
+    public void heartbeatElectors() {
+        if (leader != null && !isLeader) {
+            for (PeerAddress elector : tmanPartners) {
+                if (!outstandingElectorHearbeats.containsKey(elector)) {
+                    ScheduleTimeout rst = new ScheduleTimeout(1000);
+                    LeaderHeartbeatTimeout timeoutMessage = new LeaderHeartbeatTimeout(rst, elector);
+                    rst.setTimeoutEvent(timeoutMessage);
+                    outstandingElectorHearbeats.put(elector, timeoutMessage.getRequestID());
+                    //leaderHeartbeatOutstanding = timeoutMessage.getRequestID();
+                    trigger(rst, timerPort);
+                    trigger(new LeaderElectionMessage(timeoutMessage.getRequestID(), "ARE_YOU_ALIVE", nextId, self, elector), networkPort);
+                }
+            }
+        }
     }
 
     public void checkForLeadership() {
@@ -616,6 +666,10 @@ public final class Search extends ComponentDefinition {
                 if (isLowestPeer(message.getPeerSource())) {
                     trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LEGEND", nextId, self, message.getPeerSource()), networkPort);
                 } else {
+                    //if (self.getPeerId().equals(new BigInteger("2")) && message.getPeerSource().getPeerId().equals(new BigInteger("1"))) {
+                    if (message.getPeerSource().getPeerId().equals(new BigInteger("2"))) {
+                        //System.out.println(self.getPeerId() + " says " + message.getPeerSource().getPeerId()  + " is not lowest: " + prettyPrintPeerAddressesList(tmanPartners));
+                    }
                     trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LOSER", self, message.getPeerSource()), networkPort);
                 }
             } else if (message.getCommand().equals("YOU_ARE_LEGEND")) {
@@ -633,9 +687,18 @@ public final class Search extends ComponentDefinition {
                     isLeader = false;
                 }
                 isRunningElection = false;
+            } else if (message.getCommand().equals("ARE_YOU_ALIVE")) {
+                trigger(new LeaderElectionMessage(message.getRequestId(), "I_AM_ALIVE", self, message.getPeerSource()), networkPort);
+            } else if (message.getCommand().equals("I_AM_ALIVE")) {
+                if(outstandingElectorHearbeats.get(message.getPeerSource()).equals(message.getRequestId())) {
+                    outstandingElectorHearbeats.remove(message.getPeerSource());
+                    aliveElectors.put(message.getPeerSource(), true);
+                }
             }
         }
     };
+
+
 
     Handler<LeaderRequestMessage> handleLeaderRequestMessage = new Handler<LeaderRequestMessage>() {
         @Override

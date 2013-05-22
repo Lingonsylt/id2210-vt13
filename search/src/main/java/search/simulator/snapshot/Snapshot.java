@@ -121,11 +121,25 @@ public class Snapshot {
         System.out.println("#### " + key + ": " + value);
     }
 
+    public static String getReportedValue(String key) {
+        if (!reportedValues.containsKey(key)) {
+            throw new RuntimeException("Key " + key + " has not been reported!");
+        }
+
+        return reportedValues.get(key);
+    }
+
+
     public static boolean isReported(String key) {
         return reportedValues.containsKey(key);
     }
 
 
+    public static void leaderElectionStarted() {
+        if (isReported("firstLeader") && !isReported("secondLeader") && !isReported("deadLeaderConfirmed")) {
+            reportValue("deadLeaderConfirmed", getTicksSinceAllJoined() - Integer.parseInt(getReportedValue("originalLeaderDead")) + "");
+        }
+    }
 
     public static String createReport() {
         boolean createReport = false;
@@ -134,18 +148,21 @@ public class Snapshot {
         if (numLeaders == 1 && lastLeaderCount == 0 && !isReported("firstLeader")) {
             reportValue("firstLeader", getTicksSinceAllJoined() + "");
             if (!Snapshot.getLeaders().get(0).getPeerId().equals(BigInteger.ONE)) {
-                throw new RuntimeException("First leader is not correct leader!");
+                throw new RuntimeException("First leader is not correct leader! Expected 1, was " + Snapshot.getLeaders().get(0).getPeerId());
             }
         }
 
         if (numLeaders > lastLeaderCount && isReported("firstLeader") && isReported("originalLeaderDead") && !isReported("secondLeader")) {
-            reportValue("secondLeader", getTicksSinceAllJoined() + "");
+            reportValue("secondLeader", (getTicksSinceAllJoined() - (Integer.parseInt(getReportedValue("originalLeaderDead")) + Integer.parseInt(getReportedValue("deadLeaderConfirmed")))) + "");
+            if (!Snapshot.getLeaders().get(0).getPeerId().equals(new BigInteger("2"))) {
+                throw new RuntimeException("Second leader is not correct leader! Expected 2, was " + Snapshot.getLeaders().get(0).getPeerId());
+            }
         }
 
         if (numLeaders != lastLeaderCount) {
-            lastLeaderCount = numLeaders;
+            /*lastLeaderCount = numLeaders;
             o += "# num leaders: " + numLeaders + "\n";
-            createReport = true;
+            createReport = true;*/
         }
 
         if (counter % 1 == 0) {
