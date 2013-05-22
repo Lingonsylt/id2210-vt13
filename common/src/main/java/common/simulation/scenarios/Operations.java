@@ -21,11 +21,13 @@ public class Operations {
 	}
 
 //-------------------------------------------------------------------
-	public static Operation1<PeerFail, BigInteger> peerFail = new Operation1<PeerFail, BigInteger>() {
-		public PeerFail generate(BigInteger id) {
-			return new PeerFail(id);
-		}
-	};
+	public static Operation1<PeerFail, BigInteger> peerFail(final BigInteger staticId) {
+        return new Operation1<PeerFail, BigInteger>() {
+            public PeerFail generate(BigInteger id) {
+                return new PeerFail(staticId);
+            }
+        };
+    }
 
 //-------------------------------------------------------------------
 	public static Operation<Publish> publish = new Operation<Publish>() {

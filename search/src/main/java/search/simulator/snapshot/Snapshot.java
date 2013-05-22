@@ -55,6 +55,9 @@ public class Snapshot {
 
 //-------------------------------------------------------------------
 	public static void removePeer(PeerAddress address) {
+        if (address.getPeerId().equals(BigInteger.ONE)) {
+            reportValue("originalLeaderDead", getTicksSinceAllJoined() + "");
+        }
 		peers.remove(address);
 	}
 
@@ -134,6 +137,11 @@ public class Snapshot {
                 throw new RuntimeException("First leader is not correct leader!");
             }
         }
+
+        if (numLeaders > lastLeaderCount && isReported("firstLeader") && isReported("originalLeaderDead") && !isReported("secondLeader")) {
+            reportValue("secondLeader", getTicksSinceAllJoined() + "");
+        }
+
         if (numLeaders != lastLeaderCount) {
             lastLeaderCount = numLeaders;
             o += "# num leaders: " + numLeaders + "\n";
