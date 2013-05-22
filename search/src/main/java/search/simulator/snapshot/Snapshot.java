@@ -1,7 +1,9 @@
 package search.simulator.snapshot;
 
+import java.math.BigInteger;
 import java.util.ArrayList;
 import java.util.HashMap;
+import java.util.List;
 
 import common.peer.PeerAddress;
 import search.system.peer.search.Search;
@@ -14,6 +16,22 @@ public class Snapshot {
     private static float lastIndexDistPercentage = 0;
     private static int maxLeaderIndex = 0;
     private static int lastMaxLuceneIndex = 0;
+    private static boolean allPeersJoined = false;
+    private static int allPeersTotal = 200;
+    private static int allPeersJoinedTime;
+    private static HashMap<String, String> reportedValues = new HashMap<String, String>();
+    private static PeerAddress firstPeer = null;
+
+    public static int getCounter() {
+        return counter;
+    }
+
+    public static int getTicksSinceAllJoined() {
+        if (!allPeersJoined) {
+            throw new RuntimeException("All peers haven't joined yet!");
+        }
+        return counter - allPeersJoinedTime;
+    }
 
 //-------------------------------------------------------------------
 	public static void init(int numOfStripes) {
@@ -22,7 +40,17 @@ public class Snapshot {
 
 //-------------------------------------------------------------------
 	public static void addPeer(PeerAddress address) {
+        if(firstPeer == null) {
+            firstPeer = address;
+        }
 		peers.put(address, new PeerInfo());
+        if (!allPeersJoined) {
+            if (peers.size() == allPeersTotal) {
+                reportValue("allPeersJoined", counter + "");
+                allPeersJoined = true;
+                allPeersJoinedTime = counter;
+            }
+        }
 	}
 
 //-------------------------------------------------------------------
@@ -85,10 +113,27 @@ public class Snapshot {
         return ((float)numWithFullIndex / (float)numPeers) * 100;
     }
 
+    public static void reportValue(String key, String value) {
+        reportedValues.put(key, value);
+        System.out.println("#### " + key + ": " + value);
+    }
+
+    public static boolean isReported(String key) {
+        return reportedValues.containsKey(key);
+    }
+
+
+
     public static String createReport() {
         boolean createReport = false;
         String o = "";
         int numLeaders = getNumberOfLeaders();
+        if (numLeaders == 1 && lastLeaderCount == 0 && !isReported("firstLeader")) {
+            reportValue("firstLeader", getTicksSinceAllJoined() + "");
+            if (!Snapshot.getLeaders().get(0).getPeerId().equals(BigInteger.ONE)) {
+                throw new RuntimeException("First leader is not correct leader!");
+            }
+        }
         if (numLeaders != lastLeaderCount) {
             lastLeaderCount = numLeaders;
             o += "# num leaders: " + numLeaders + "\n";
@@ -132,24 +177,31 @@ public class Snapshot {
      */
 
     public static int getNumberOfLeaders() {
+        return getLeaders().size();
+    }
+
+    private static List<PeerAddress> getLeaders() {
         PeerAddress[] peersList = new PeerAddress[peers.size()];
         peers.keySet().toArray(peersList);
 
-        int numLeaders = 0;
+        List<PeerAddress> leaders = new ArrayList<PeerAddress>();
         for (PeerAddress peer : peersList) {
             PeerInfo peerInfo = peers.get(peer);
             if (peerInfo.getSearch() != null && peerInfo.getSearch().isLeader()) {
-                numLeaders += 1;
+                leaders.add(peer);
             }
         }
-
-        return numLeaders;
+        return leaders;
     }
 
 
 //-------------------------------------------------------------------
-	public static void report() {
+	public static void report(PeerAddress peer) {
+        if (peer != firstPeer) {
+            return;
+        }
         counter++;
+
         //if (counter % 10000 == 1) {
             String report = createReport();
             if (report != null) System.out.println(report);

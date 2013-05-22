@@ -9,12 +9,13 @@ import se.sics.kompics.p2p.experiment.dsl.adaptor.Operation1;
 
 @SuppressWarnings("serial")
 public class Operations {
-
+    private static BigInteger peerId = new BigInteger("201");
 //-------------------------------------------------------------------
 	public static Operation1<PeerJoin, BigInteger> peerJoin(final int num) {
 		return new Operation1<PeerJoin, BigInteger>() {
 			public PeerJoin generate(BigInteger id) {
-				return new PeerJoin(id, num);
+                peerId = peerId.subtract(BigInteger.ONE);
+				return new PeerJoin(peerId, num);
 			}
 		};
 	}

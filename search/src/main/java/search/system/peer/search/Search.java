@@ -483,8 +483,8 @@ public final class Search extends ComponentDefinition {
         @Override
         public void handle(CyclonSample event) {
             Snapshot.updateSearch(self, that);
-            Snapshot.report();
-            tman.simulator.snapshot.Snapshot.report();
+            Snapshot.report(self);
+            //tman.simulator.snapshot.Snapshot.report();
             // receive a new list of neighbours
             ArrayList<PeerAddress> sampleNodes = event.getSample();
 
