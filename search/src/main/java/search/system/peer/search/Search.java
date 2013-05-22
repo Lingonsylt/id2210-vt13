@@ -2,6 +2,7 @@ package search.system.peer.search;
 
 import org.apache.lucene.search.*;
 import se.sics.kompics.timer.ScheduleTimeout;
+import search.simulator.core.SimulationAddIndexEntry;
 import search.simulator.snapshot.Snapshot;
 import common.configuration.SearchConfiguration;
 import common.peer.PeerAddress;
@@ -96,6 +97,8 @@ public final class Search extends ComponentDefinition {
 
         subscribe(handleIndexExchangeRequest, networkPort);
         subscribe(handleIndexExchangeResponse, networkPort);
+
+        subscribe(handleSimulationAddIndexEntry, networkPort);
 
         subscribe(handleLeaderRequestMessageTimeout, timerPort);
         subscribe(handleLeaderHeartbeatTimeout, timerPort);
@@ -203,7 +206,7 @@ public final class Search extends ComponentDefinition {
                     String value = WebHelpers.getParamOrDefault(jettyRequest, "value", null);
                     if (key != null && value != null) {
                         IOException addException = null;
-                        addEntryAtClient(key, value, true);
+                        addEntryAtClient(key, value);
                         if (addException == null) {
                             response = WebHelpers.createDefaultRenderedResponse(event, "Uploaded item into network!", "Added " + key + " with value " + value + "!");
                         } else {
@@ -291,7 +294,12 @@ public final class Search extends ComponentDefinition {
 
     }*/
 
-    private void addEntryAtClient(String key, String value, boolean retry) {
+    private void addEntryAtClient(String key, String value) {
+        Snapshot.addIndexEntryInitiated();
+        addEntryAtClient(key, value, null, UUID.randomUUID());
+    }
+
+    private void addEntryAtClient(String key, String value, PeerAddress relayFor, UUID requestID) {
         if(isLeader) {
             try {
                 addEntryAtLeader(key, value);
@@ -300,27 +308,27 @@ public final class Search extends ComponentDefinition {
                 System.exit(-1);
             }
         } else {
-            UUID requestID = UUID.randomUUID();
-
             LeaderRequestMessage message = null;
-            PeerAddress recipient = leader;
+            PeerAddress recipient = null; //leader;
             if(recipient == null) {
                 recipient = getTopmostPartner();
             }
+            PeerAddress sender = relayFor == null ? self : relayFor;
+
             if (recipient == null) {
-                message = new LeaderRequestMessage(requestID, key, value, self);
+                message = new LeaderRequestMessage(requestID, key, value, sender);
             } else {
-                message = new LeaderRequestMessage(requestID, key, value, self, recipient);
+                message = new LeaderRequestMessage(requestID, key, value, sender, recipient);
             }
 
-            if (retry) {
-                ScheduleTimeout rst = new ScheduleTimeout(10000);
-                rst.setTimeoutEvent(new LeaderRequestMessageTimeout(rst, requestID));
-                trigger(rst, timerPort);
-                outstandingLeaderRequests.put(requestID, message);
-            }
+            ScheduleTimeout rst = new ScheduleTimeout(10000);
+            rst.setTimeoutEvent(new LeaderRequestMessageTimeout(rst, requestID, relayFor == null));
+            trigger(rst, timerPort);
+            outstandingLeaderRequests.put(requestID, message);
 
             if (recipient != null) {
+                //System.out.println(self + ": Adding at: " + recipient);
+                Snapshot.addIndexEntryMessageSent();
                 trigger(message, networkPort);
             }
         }
@@ -331,6 +339,7 @@ public final class Search extends ComponentDefinition {
         public void handle(LeaderHeartbeatTimeout message) {
             if (outstandingElectorHearbeats.containsKey(message.getElector()) && outstandingElectorHearbeats.get(message.getElector()).equals(message.getRequestID())) {
                 if (message.getElector().equals(leader)) {
+                    leader = null;
                     //System.out.println("Leader heartbeat timeout! Initiating leader election: " + self.getPeerId());
                     //System.out.println("Removing " + message.getElector().getPeerId() + ": " + tmanPartners.remove(message.getElector()));
                     initiateLeaderElection();
@@ -346,8 +355,16 @@ public final class Search extends ComponentDefinition {
         public void handle(LeaderRequestMessageTimeout message) {
             LeaderRequestMessage outstanding = outstandingLeaderRequests.get(message.getRequestID());
             if (outstanding != null) {
-                //System.out.println("Retrying request " + outstanding.getRequestId() + " at leader " + leader);
-                addEntryAtClient(outstanding.getKey(), outstanding.getValue(), true);
+                //System.out.println(self.getPeerId() + ": Request failed towards " + outstanding.getPeerDestination());
+                topmostCyclonPartners.remove(outstanding.getPeerDestination());
+                tmanPartners.remove(outstanding.getPeerDestination());
+                if (message.getRetry()) {
+                    if (tmanPartners.contains(outstanding.getPeerDestination()) || topmostCyclonPartners.contains(outstanding.getPeerDestination())) {
+                        throw new RuntimeException("Remove failed!");
+                    }
+                    //System.out.println(self.getPeerId() + ": Retrying request " + outstanding.getRequestId());
+                    addEntryAtClient(outstanding.getKey(), outstanding.getValue());
+                }
             } else {
                 //System.out.println("Succeeded with request " + message.getRequestID() + " at leader " + leader);
             }
@@ -361,8 +378,9 @@ public final class Search extends ComponentDefinition {
 
     private void addEntryAtLeader(String key, String value) throws IOException {
         maxLuceneIndex = ++nextId;
-        System.out.println("Item added: " + maxLuceneIndex);
+        //System.out.println("Item added: " + maxLuceneIndex + ". " + key + ", " + value);
         Snapshot.updateMaxLeaderIndex(maxLuceneIndex);
+        Snapshot.addIndexEntryAtLeader();
         IndexWriter w = new IndexWriter(index, config);
         Document doc = new Document();
         doc.add(new TextField("title", key, Field.Store.YES));
@@ -445,6 +463,9 @@ public final class Search extends ComponentDefinition {
 
     private void addTopMostCyclonPartners(List<PeerAddress> parnters) {
         for(PeerAddress peer : parnters) {
+            if (topmostCyclonPartners.contains(peer)) {
+                continue;
+            }
             if (topmostCyclonPartners.size() < 10) {
                 topmostCyclonPartners.add(peer);
             } else {
@@ -533,6 +554,7 @@ public final class Search extends ComponentDefinition {
             tmanPartners = event.getSample();
 
             if (tmanPartners.size() > 1) {
+                Snapshot.addIndexPropagationMessageSent();
                 trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), tmanPartners.get(randomGenerator.nextInt(tmanPartners.size())).getPeerAddress(), maxLuceneIndex), networkPort);
             }
 
@@ -547,6 +569,7 @@ public final class Search extends ComponentDefinition {
         @Override
         public void handle(IndexExchangeRequest event) {
             if (event.getMaxIndexID() < maxLuceneIndex) {
+                Snapshot.addIndexPropagationMessageSent();
                 trigger(new IndexExchangeResponse(self.getPeerAddress(), self.getPeerId(), event.getSource(), getDocumentsSinceIndex(event.getMaxIndexID())), networkPort);
             }
         }
@@ -601,6 +624,11 @@ public final class Search extends ComponentDefinition {
 
     public void heartbeatElectors() {
         if (leader != null && !isLeader) {
+            List<PeerAddress> electors = new ArrayList<PeerAddress>(tmanPartners);
+            if (!electors.contains(leader)) {
+                electors.add(leader);
+            }
+
             for (PeerAddress elector : tmanPartners) {
                 if (!outstandingElectorHearbeats.containsKey(elector)) {
                     ScheduleTimeout rst = new ScheduleTimeout(1000);
@@ -659,6 +687,14 @@ public final class Search extends ComponentDefinition {
         return output;
     }
 
+    Handler<SimulationAddIndexEntry> handleSimulationAddIndexEntry = new Handler<SimulationAddIndexEntry>() {
+        @Override
+        public void handle(SimulationAddIndexEntry message) {
+            //System.out.println(self.getPeerId() + ": Adding index entry: " + message.getKey() + ", " + message.getValue());
+            addEntryAtClient(message.getKey(), message.getValue());
+        }
+    };
+
     Handler<LeaderElectionMessage> handleLeaderElectionIncoming = new Handler<LeaderElectionMessage>() {
         @Override
         public void handle(LeaderElectionMessage message) {
@@ -706,12 +742,14 @@ public final class Search extends ComponentDefinition {
             if (isLeader) {
                 try {
                     addEntryAtLeader(request.getKey(), request.getValue());
+                    //System.out.println(self.getPeerId() + ": add response to " + request.getPeerSource());
+                    Snapshot.addIndexEntryMessageSent();
                     trigger(new LeaderResponseMessage(request.getRequestId(), self, request.getPeerSource()), networkPort);
                 } catch (IOException e) {
                     e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
                 }
             } else {
-                addEntryAtClient(request.getKey(), request.getValue(), false);
+                addEntryAtClient(request.getKey(), request.getValue(), request.getPeerSource(), request.getRequestId());
             }
         }
     };
@@ -719,8 +757,9 @@ public final class Search extends ComponentDefinition {
     Handler<LeaderResponseMessage> handleLeaderResponseMessage = new Handler<LeaderResponseMessage>() {
         @Override
         public void handle(LeaderResponseMessage response) {
-            //System.out.println("Successfully added an entry at leader!");
+            //System.out.println(self.getPeerId() + ": Successfully added an entry at leader!");
             outstandingLeaderRequests.remove(response.getRequestId());
+            Snapshot.addIndexEntryCompleted();
         }
     };
 }

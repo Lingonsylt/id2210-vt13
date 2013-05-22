@@ -21,6 +21,8 @@ public class Snapshot {
     private static int allPeersJoinedTime;
     private static HashMap<String, String> reportedValues = new HashMap<String, String>();
     private static PeerAddress firstPeer = null;
+    private static int indexAddMessages = 0;
+    private static int indexPropagationMessages = 0;
 
     public static int getCounter() {
         return counter;
@@ -94,6 +96,38 @@ public class Snapshot {
 		peerInfo.updateCyclonPartners(partners);
 	}
 
+    public static void addIndexEntryInitiated() {
+        if(!isReported("addIndexEntryInitiated")) {
+            indexAddMessages = 0;
+            reportValue("addIndexEntryInitiated", getTicksSinceAllJoined() + "");
+        }
+    }
+
+    public static void addIndexEntryAtLeader() {
+        indexPropagationMessages = 0;
+        reportValue("indexPropagationStart", getTicksSinceAllJoined() + "");
+    }
+
+    private static void indexEntryPropagationComplete() {
+        reportValue("indexPropagationComplete", getTicksSinceAllJoined() - getReportedValueAsInt("indexPropagationStart") + "");
+        reportValue("indexPropagationTotalMessages", indexPropagationMessages + "");
+    }
+
+    public static void addIndexEntryCompleted() {
+        if(isReported("addIndexEntryInitiated") && !isReported("addIndexEntryCompleted")) {
+            reportValue("addIndexEntryTotalMessages", indexAddMessages + "");
+            reportValue("addIndexEntryCompleted", getTicksSinceAllJoined() - getReportedValueAsInt("addIndexEntryInitiated") + "");
+        }
+    }
+
+    public static void addIndexEntryMessageSent() {
+        indexAddMessages++;
+    }
+
+    public static void addIndexPropagationMessageSent() {
+        indexPropagationMessages++;
+    }
+
     public static float getIndexDistPercentage() {
         PeerAddress[] peersList = new PeerAddress[peers.size()];
         peers.keySet().toArray(peersList);
@@ -105,7 +139,7 @@ public class Snapshot {
             if (peerInfo.getSearch() != null) {
                 numPeers++;
                 if (peerInfo.getSearch().getMaxLuceneIndex() > maxLeaderIndex) {
-                    throw new RuntimeException("Node with index higher than leader foun!: " + peerInfo);
+                    throw new RuntimeException("Node with index higher than leader found!: " + peerInfo);
                 }
                 if (peerInfo.getSearch().getMaxLuceneIndex() == maxLeaderIndex) {
                     numWithFullIndex += 1;
@@ -119,6 +153,10 @@ public class Snapshot {
     public static void reportValue(String key, String value) {
         reportedValues.put(key, value);
         System.out.println("#### " + key + ": " + value);
+    }
+
+    public static int getReportedValueAsInt(String key) {
+        return Integer.parseInt(getReportedValue(key));
     }
 
     public static String getReportedValue(String key) {
@@ -167,7 +205,10 @@ public class Snapshot {
 
         if (counter % 1 == 0) {
             float indexDistPercentage = getIndexDistPercentage();
-            if (Math.abs((int)indexDistPercentage - (int)lastIndexDistPercentage) >= 10) {
+            if (indexDistPercentage != lastIndexDistPercentage && ((int)indexDistPercentage == 100 || (int)indexDistPercentage == 0)) {
+                if ((int)indexDistPercentage == 100 && isReported("indexPropagationStart") && !isReported("indexPropagationComplete")) {
+                    Snapshot.indexEntryPropagationComplete();
+                }
                 lastIndexDistPercentage = indexDistPercentage;
                 o += "# index dist %: " + (int)indexDistPercentage + "\n";
                 createReport = true;
@@ -179,9 +220,9 @@ public class Snapshot {
             o += "# max index: " + maxLeaderIndex+ "\n";
             createReport = true;
         }
-        o += "#=#=#=#=#=#";
+
         if (createReport) {
-            return o;
+            return o.trim();
         } else {
             return null;
         }

@@ -1,7 +1,8 @@
 package search.simulator.core;
 
 import common.configuration.TManConfiguration;
-import common.simulation.SimulatorPort;
+import common.simulation.*;
+
 import java.math.BigInteger;
 import java.util.HashMap;
 
@@ -28,12 +29,10 @@ import search.simulator.snapshot.Snapshot;
 import common.configuration.SearchConfiguration;
 import common.configuration.Configuration;
 import common.configuration.CyclonConfiguration;
-import common.simulation.ConsistentHashtable;
-import common.simulation.GenerateReport;
-import common.simulation.PeerFail;
-import common.simulation.PeerJoin;
-import common.simulation.SimulatorInit;
+
 import java.net.InetAddress;
+import java.util.Random;
+
 import se.sics.ipasdistances.AsIpGenerator;
 import se.sics.kompics.Negative;
 import se.sics.kompics.web.Web;
@@ -67,6 +66,7 @@ public final class SearchSimulator extends ComponentDefinition {
         subscribe(handleGenerateReport, timer);
         subscribe(handlePeerJoin, simulator);
         subscribe(handlePeerFail, simulator);
+        subscribe(handleAddIndexEntry, simulator);
     }
 //-------------------------------------------------------------------	
     Handler<SimulatorInit> handleInit = new Handler<SimulatorInit>() {
@@ -126,6 +126,17 @@ public final class SearchSimulator extends ComponentDefinition {
             stopAndDestroyPeer(id);
         }
     };
+
+    Handler<AddIndexEntry> handleAddIndexEntry = new Handler<AddIndexEntry>() {
+        public void handle(AddIndexEntry event) {
+            Random r = new Random();
+            PeerAddress[] peersList = new PeerAddress[peersAddress.size()];
+            peersAddress.values().toArray(peersList);
+            PeerAddress randomPeer = peersList[r.nextInt(peersAddress.size())];
+            trigger(new SimulationAddIndexEntry(event.getKey(), event.getValue(), randomPeer, randomPeer), network);
+        }
+    };
+
 //-------------------------------------------------------------------	
     Handler<GenerateReport> handleGenerateReport = new Handler<GenerateReport>() {
 
