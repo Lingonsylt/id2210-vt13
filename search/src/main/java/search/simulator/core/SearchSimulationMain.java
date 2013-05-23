@@ -79,7 +79,7 @@ public final class SearchSimulationMain extends ComponentDefinition {
                 new JettyWebServerConfiguration(ip, webPort,
                 30 * 1000, 2, webServerAddr);
         trigger(new JettyWebServerInit(webConfiguration), web.getControl());
-        System.out.println("Webserver Started. Address=" + webServerAddr + "/1/search");
+        //System.out.println("Webserver Started. Address=" + webServerAddr + "/1/search");
     }
 
 //-------------------------------------------------------------------	

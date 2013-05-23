@@ -29,6 +29,7 @@ import search.simulator.snapshot.Snapshot;
 import common.configuration.SearchConfiguration;
 import common.configuration.Configuration;
 import common.configuration.CyclonConfiguration;
+import common.simulation.AddIndexEntry;
 
 import java.net.InetAddress;
 import java.util.Random;
@@ -53,6 +54,7 @@ public final class SearchSimulator extends ComponentDefinition {
     private BigInteger cyclonIdentifierSpaceSize;
     private ConsistentHashtable<BigInteger> cyclonView;
     private AsIpGenerator ipGenerator = AsIpGenerator.getInstance(125);
+    private PeerAddress firstAddedPeer = null;
     
     
 //-------------------------------------------------------------------	
@@ -129,11 +131,11 @@ public final class SearchSimulator extends ComponentDefinition {
 
     Handler<AddIndexEntry> handleAddIndexEntry = new Handler<AddIndexEntry>() {
         public void handle(AddIndexEntry event) {
-            Random r = new Random();
+            /*Random r = new Random();
             PeerAddress[] peersList = new PeerAddress[peersAddress.size()];
             peersAddress.values().toArray(peersList);
-            PeerAddress randomPeer = peersList[r.nextInt(peersAddress.size())];
-            trigger(new SimulationAddIndexEntry(event.getKey(), event.getValue(), randomPeer, randomPeer), network);
+            PeerAddress randomPeer = peersList[r.nextInt(peersAddress.size())];*/
+            trigger(new SimulationAddIndexEntry(event.getKey(), event.getValue(), firstAddedPeer, firstAddedPeer), network);
         }
     };
 
@@ -162,7 +164,11 @@ public final class SearchSimulator extends ComponentDefinition {
 
         trigger(new Start(), peer.getControl());
         peers.put(id, peer);
+
         peersAddress.put(id, peerAddress);
+        if (firstAddedPeer == null) {
+            firstAddedPeer = peerAddress;
+        }
 
         return peer;
     }

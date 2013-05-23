@@ -117,6 +117,10 @@ public final class TMan extends ComponentDefinition {
     Handler<TManSchedule> handleRound = new Handler<TManSchedule>() {
         @Override
         public void handle(TManSchedule event) {
+            if (!Snapshot.hasAllPeersJoined()) {
+                return;
+            }
+
             if (tmanPartners.size() > C) {
                 System.out.println("HR!");
                 System.exit(1);
@@ -261,6 +265,9 @@ public final class TMan extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
+            if(!Snapshot.hasAllPeersJoined()) {
+                return;
+            }
             ArrayList<PeerAddress> cyclonPartners = event.getSample();
 
             if (tmanPartners.size() != 0) {

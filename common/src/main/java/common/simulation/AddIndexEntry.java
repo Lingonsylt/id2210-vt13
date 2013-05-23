@@ -2,8 +2,6 @@ package common.simulation;
 
 import se.sics.kompics.Event;
 
-import java.math.BigInteger;
-
 public final class AddIndexEntry extends Event {
 
 	private final String key;

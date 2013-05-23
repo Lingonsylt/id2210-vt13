@@ -17,7 +17,7 @@ public class Snapshot {
     private static int maxLeaderIndex = 0;
     private static int lastMaxLuceneIndex = 0;
     private static boolean allPeersJoined = false;
-    private static int allPeersTotal = 200;
+    private static int allPeersTotal = System.getenv("PEERS") != null ? Integer.parseInt(System.getenv("PEERS")) : 200;
     private static int allPeersJoinedTime;
     private static HashMap<String, String> reportedValues = new HashMap<String, String>();
     private static PeerAddress firstPeer = null;
@@ -26,6 +26,10 @@ public class Snapshot {
 
     public static int getCounter() {
         return counter;
+    }
+
+    public static boolean hasAllPeersJoined() {
+        return allPeersJoined;
     }
 
     public static int getTicksSinceAllJoined() {
@@ -48,7 +52,7 @@ public class Snapshot {
 		peers.put(address, new PeerInfo());
         if (!allPeersJoined) {
             if (peers.size() == allPeersTotal) {
-                reportValue("allPeersJoined", counter + "");
+                reportValue("allPeersJoined", counter);
                 allPeersJoined = true;
                 allPeersJoinedTime = counter;
             }
@@ -58,7 +62,7 @@ public class Snapshot {
 //-------------------------------------------------------------------
 	public static void removePeer(PeerAddress address) {
         if (address.getPeerId().equals(BigInteger.ONE)) {
-            reportValue("originalLeaderDead", getTicksSinceAllJoined() + "");
+            reportValue("originalLeaderDead", getTicksSinceAllJoined());
         }
 		peers.remove(address);
 	}
@@ -99,25 +103,33 @@ public class Snapshot {
     public static void addIndexEntryInitiated() {
         if(!isReported("addIndexEntryInitiated")) {
             indexAddMessages = 0;
-            reportValue("addIndexEntryInitiated", getTicksSinceAllJoined() + "");
+            if (!isReported("secondLeader")) {
+                throw new RuntimeException("Second leader has to be present before index measurements start!");
+            }
+            reportValue("addIndexEntryInitiated", getTicksSinceAllJoined());
         }
     }
 
     public static void addIndexEntryAtLeader() {
         indexPropagationMessages = 0;
-        reportValue("indexPropagationStart", getTicksSinceAllJoined() + "");
+        reportValue("indexPropagationStart", getTicksSinceAllJoined());
     }
 
     private static void indexEntryPropagationComplete() {
-        reportValue("indexPropagationComplete", getTicksSinceAllJoined() - getReportedValueAsInt("indexPropagationStart") + "");
-        reportValue("indexPropagationTotalMessages", indexPropagationMessages + "");
+        reportValue("indexPropagationComplete", getTicksSinceAllJoined() - getReportedValueAsInt("indexPropagationStart"));
+        reportValue("indexPropagationTotalMessages", indexPropagationMessages);
     }
 
     public static void addIndexEntryCompleted() {
         if(isReported("addIndexEntryInitiated") && !isReported("addIndexEntryCompleted")) {
-            reportValue("addIndexEntryTotalMessages", indexAddMessages + "");
-            reportValue("addIndexEntryCompleted", getTicksSinceAllJoined() - getReportedValueAsInt("addIndexEntryInitiated") + "");
+            reportValue("addIndexEntryTotalMessages", indexAddMessages);
+            reportValue("addIndexEntryCompleted", getTicksSinceAllJoined() - getReportedValueAsInt("addIndexEntryInitiated"));
         }
+        shutdownSimulation();
+    }
+
+    public static void shutdownSimulation() {
+        System.exit(0);
     }
 
     public static void addIndexEntryMessageSent() {
@@ -150,9 +162,13 @@ public class Snapshot {
         return ((float)numWithFullIndex / (float)numPeers) * 100;
     }
 
+    public static void reportValue(String key, int value) {
+        reportValue(key, value + "");
+    }
+
     public static void reportValue(String key, String value) {
         reportedValues.put(key, value);
-        System.out.println("#### " + key + ": " + value);
+        System.out.println("" + key + "\t" + value);
     }
 
     public static int getReportedValueAsInt(String key) {
@@ -175,43 +191,53 @@ public class Snapshot {
 
     public static void leaderElectionStarted() {
         if (isReported("firstLeader") && !isReported("secondLeader") && !isReported("deadLeaderConfirmed")) {
-            reportValue("deadLeaderConfirmed", getTicksSinceAllJoined() - Integer.parseInt(getReportedValue("originalLeaderDead")) + "");
+            reportValue("deadLeaderConfirmed", getTicksSinceAllJoined() - getReportedValueAsInt("originalLeaderDead"));
         }
     }
 
     public static String createReport() {
         boolean createReport = false;
         String o = "";
+
+        if (!isReported("numberOfPeers")) {
+            reportValue("numberOfPeers", allPeersTotal);
+        }
+
         int numLeaders = getNumberOfLeaders();
         if (numLeaders == 1 && lastLeaderCount == 0 && !isReported("firstLeader")) {
-            reportValue("firstLeader", getTicksSinceAllJoined() + "");
-            if (!Snapshot.getLeaders().get(0).getPeerId().equals(BigInteger.ONE)) {
-                throw new RuntimeException("First leader is not correct leader! Expected 1, was " + Snapshot.getLeaders().get(0).getPeerId());
+
+            if (Snapshot.getLeaders().get(0).getPeerId().equals(BigInteger.ONE)) {
+                reportValue("firstLeader", getTicksSinceAllJoined());
+                //throw new RuntimeException("First leader is not correct leader! Expected 1, was " + Snapshot.getLeaders().get(0).getPeerId());
             }
         }
 
         if (numLeaders > lastLeaderCount && isReported("firstLeader") && isReported("originalLeaderDead") && !isReported("secondLeader")) {
-            reportValue("secondLeader", (getTicksSinceAllJoined() - (Integer.parseInt(getReportedValue("originalLeaderDead")) + Integer.parseInt(getReportedValue("deadLeaderConfirmed")))) + "");
-            if (!Snapshot.getLeaders().get(0).getPeerId().equals(new BigInteger("2"))) {
-                throw new RuntimeException("Second leader is not correct leader! Expected 2, was " + Snapshot.getLeaders().get(0).getPeerId());
+            if (Snapshot.getLeaders().get(0).getPeerId().equals(new BigInteger("2"))) {
+                reportValue("secondLeader", (getTicksSinceAllJoined() - (getReportedValueAsInt("originalLeaderDead") + getReportedValueAsInt("deadLeaderConfirmed"))));
+                //throw new RuntimeException("Second leader is not correct leader! Expected 2, was " + Snapshot.getLeaders().get(0).getPeerId());
             }
         }
 
-        if (numLeaders != lastLeaderCount) {
-            /*lastLeaderCount = numLeaders;
-            o += "# num leaders: " + numLeaders + "\n";
-            createReport = true;*/
+        if (false && numLeaders != lastLeaderCount) {
+            lastLeaderCount = numLeaders;
+            o += "# num leaders: " + numLeaders;
+            for (PeerAddress leader : getLeaders()) {
+                o += "(" + leader + ")";
+            }
+            o += "\n";
+            createReport = true;
         }
 
         if (counter % 1 == 0) {
             float indexDistPercentage = getIndexDistPercentage();
-            if (indexDistPercentage != lastIndexDistPercentage && ((int)indexDistPercentage == 100 || (int)indexDistPercentage == 0)) {
+            if (indexDistPercentage != lastIndexDistPercentage && (true || (int)indexDistPercentage == 100 || (int)indexDistPercentage == 0)) {
                 if ((int)indexDistPercentage == 100 && isReported("indexPropagationStart") && !isReported("indexPropagationComplete")) {
                     Snapshot.indexEntryPropagationComplete();
                 }
                 lastIndexDistPercentage = indexDistPercentage;
-                o += "# index dist %: " + (int)indexDistPercentage + "\n";
-                createReport = true;
+                //o += "# index dist %: " + (int)indexDistPercentage + "\n";
+                //createReport = true;
             }
         }
 

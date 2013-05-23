@@ -8,10 +8,12 @@ import java.util.Date;
 
 @SuppressWarnings("serial")
 public class Scenario1 extends Scenario {
+    private static int numberOfPeers = System.getenv("PEERS") != null ? Integer.parseInt(System.getenv("PEERS")) : 200;
 	private static SimulationScenario scenario = new SimulationScenario() {{
+
 		StochasticProcess process1 = new StochasticProcess() {{
 			eventInterArrivalTime(constant(50));
-			raise(200, Operations.peerJoin(5), uniform(13));
+			raise(numberOfPeers, Operations.peerJoin(5), uniform(13));
 		}};
 
 		StochasticProcess process2 = new StochasticProcess() {{

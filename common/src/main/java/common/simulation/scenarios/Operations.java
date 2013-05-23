@@ -10,7 +10,8 @@ import se.sics.kompics.p2p.experiment.dsl.adaptor.Operation1;
 
 @SuppressWarnings("serial")
 public class Operations {
-    private static BigInteger peerId = new BigInteger("201");
+    private static int numberOfPeers = System.getenv("PEERS") != null ? Integer.parseInt(System.getenv("PEERS")) : 200;
+    private static BigInteger peerId = new BigInteger(numberOfPeers + "").add(BigInteger.ONE);
 //-------------------------------------------------------------------
 	public static Operation1<PeerJoin, BigInteger> peerJoin(final int num) {
 		return new Operation1<PeerJoin, BigInteger>() {

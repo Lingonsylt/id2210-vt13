@@ -13,6 +13,8 @@ public class Snapshot {
 	private static int counter = 0;
 	private static String FILENAME = "tman.out";
     private static BigInteger lowestPeerID = null;
+    private static int allPeersTotal = System.getenv("PEERS") != null ? Integer.parseInt(System.getenv("PEERS")) : 200;
+    private static boolean allPeersJoined = false;
 
 //-------------------------------------------------------------------
 	public static void init(int numOfStripes) {
@@ -22,7 +24,16 @@ public class Snapshot {
 //-------------------------------------------------------------------
 	public static void addPeer(PeerAddress address) {
 		peers.put(address, new PeerInfo());
+        if (!allPeersJoined) {
+            if (peers.size() == allPeersTotal) {
+                allPeersJoined = true;
+            }
+        }
 	}
+
+    public static boolean hasAllPeersJoined() {
+        return allPeersJoined;
+    }
 
 //-------------------------------------------------------------------
 	public static void removePeer(PeerAddress address) {
