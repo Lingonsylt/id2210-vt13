@@ -243,8 +243,8 @@ public class Snapshot {
 
         if (lastMaxLuceneIndex != maxLeaderIndex) {
             lastMaxLuceneIndex = maxLeaderIndex;
-            o += "# max index: " + maxLeaderIndex+ "\n";
-            createReport = true;
+            /*o += "# max index: " + maxLeaderIndex+ "\n";
+            createReport = true;*/
         }
 
         if (createReport) {

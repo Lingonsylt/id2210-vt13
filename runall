@@ -1,0 +1,15 @@
+#!/bin/bash
+
+MAX_PEERS = 4
+RUNS = 5
+echo "# Max peers: $MAX_PEERS" > results.txt
+echo "# Runs: $RUNS" >> results.txt
+for i in {1..$MAX_PEERS}
+do
+    for n in {1..2}
+    do
+	    export PEERS="${i}00" && ./run | tee -a results.txt
+	done
+done
+echo "# Converting!"
+python convert.py && cat results_converted.txt
