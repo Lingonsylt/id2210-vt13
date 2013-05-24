@@ -25,7 +25,9 @@ public class LeaderElectionMessage extends PeerMessage {
         this.command = command;
     }
 
-
+    public int getNextId() {
+        return nextId;
+    }
 
     //-------------------------------------------------------------------
     public UUID getRequestId() {

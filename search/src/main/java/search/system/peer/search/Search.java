@@ -48,35 +48,64 @@ import tman.system.peer.tman.*;
 public final class Search extends ComponentDefinition {
 
     private static final Logger logger = LoggerFactory.getLogger(Search.class);
+    Random randomGenerator = new Random();
+
+    // Ports
     Positive<Network> networkPort = positive(Network.class);
     Positive<Timer> timerPort = positive(Timer.class);
     Negative<Web> webPort = negative(Web.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
     Positive<TManSamplePort> tmanSamplePort = positive(TManSamplePort.class);
-    Random randomGenerator = new Random();
-    private int maxLuceneIndex = 0;
+
+    // Peer
     private PeerAddress self;
-    private long period;
-    private double num;
-    private SearchConfiguration searchConfiguration;
-    // Apache Lucene used for searching
+    private Search that = this;
+
+    /**
+     * Indexing
+     **/
+    // The highest index in the local lucene database
+    private int maxLuceneIndex = 0;
+
+    // If leader, the next id that should be used when adding an entry to lucene
+    private int nextId = 0;
+
+    // Lucene setup
     StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_42);
     Directory index = new RAMDirectory();
     IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_42, analyzer);
 
-    private HashMap<UUID, LeaderRequestMessage> outstandingLeaderRequests = new HashMap<UUID, LeaderRequestMessage>();
-    private boolean isLeader = false;
-    private int nextId = 0;
-    private int sameNeighborsRoundCount = 0;
-    ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
-    private ArrayList<PeerAddress> tmanPartnersLastRound = new ArrayList<PeerAddress>();
+    // The peers closest to the top of the gradient, as discovered by cyclon. Used to route index add requests
     private ArrayList<PeerAddress> topmostCyclonPartners = new ArrayList<PeerAddress>();
+
+    // The outstanding index add requests. Used for resending if timeout is reached
+    private HashMap<UUID, LeaderRequestMessage> outstandingLeaderRequests = new HashMap<UUID, LeaderRequestMessage>();
+
+    /**
+     * Leader election
+     **/
+    private boolean isLeader = false;
     private boolean isRunningElection = false;
     private int electionYesVotes = 0;
     private int electionParticipants = 0;
+
+    // If a part of the quorum, the current leader
     private PeerAddress leader = null;
-    private Search that = this;
+
+
+    // The gradient neighbors
+    ArrayList<PeerAddress> tmanPartners = new ArrayList<PeerAddress>();
+
+    // The gradient neighbors last round, to be compared against current
+    private ArrayList<PeerAddress> tmanPartnersLastRound = new ArrayList<PeerAddress>();
+
+    // The number of rounds the gradient neighbors have been the same
+    private int sameNeighborsRoundCount = 0;
+
+    // The outstanding requests to peers in the elector group. Used to detect failure of leader and leader candidates
     private HashMap<UUID, PeerAddress> outstandingElectorHearbeats = new HashMap<UUID, PeerAddress>();
+
+    // An up-to-date map describing the dead/alive state of the leader and leader candidates
     private HashMap<PeerAddress, Boolean> aliveElectors = new HashMap<PeerAddress, Boolean>();
 
 //-------------------------------------------------------------------	
@@ -90,20 +119,21 @@ public final class Search extends ComponentDefinition {
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManSample, tmanSamplePort);
 
+        // Handle leader election and heartbeat
         subscribe(handleLeaderElectionIncoming, networkPort);
+        subscribe(handleLeaderHeartbeatTimeout, timerPort);
 
+        // Add entry to the index
         subscribe(handleLeaderRequestMessage, networkPort);
         subscribe(handleLeaderResponseMessage, networkPort);
+        subscribe(handleLeaderRequestMessageTimeout, timerPort);
 
+        // Exchange index entries
         subscribe(handleIndexExchangeRequest, networkPort);
         subscribe(handleIndexExchangeResponse, networkPort);
 
+        // Receive AddIndexEntry messages from the Scenarios,
         subscribe(handleSimulationAddIndexEntry, networkPort);
-
-        subscribe(handleLeaderRequestMessageTimeout, timerPort);
-        subscribe(handleLeaderHeartbeatTimeout, timerPort);
-
-
     }
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
@@ -116,9 +146,9 @@ public final class Search extends ComponentDefinition {
                 e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
             self = init.getSelf();
-            num = init.getNum();
-            searchConfiguration = init.getConfiguration();
-            period = searchConfiguration.getPeriod();
+            int num = init.getNum();
+            SearchConfiguration searchConfiguration = init.getConfiguration();
+            long period = searchConfiguration.getPeriod();
 
             SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(period, period);
             rst.setTimeoutEvent(new UpdateIndexTimeout(rst));
@@ -661,7 +691,7 @@ public final class Search extends ComponentDefinition {
                     outstandingElectorHearbeats.put(timeoutMessage.getRequestID(), elector);
                     //leaderHeartbeatOutstanding = timeoutMessage.getRequestID();
                     trigger(rst, timerPort);
-                    trigger(new LeaderElectionMessage(timeoutMessage.getRequestID(), "ARE_YOU_ALIVE", nextId, self, elector), networkPort);
+                    trigger(new LeaderElectionMessage(timeoutMessage.getRequestID(), "ARE_YOU_ALIVE", self, elector), networkPort);
                 }
             }
         }
@@ -733,7 +763,7 @@ public final class Search extends ComponentDefinition {
         public void handle(LeaderElectionMessage message) {
             if (message.getCommand().equals("AM_I_LEGEND")) {
                 if (isLowestPeer(message.getPeerSource())) {
-                    trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LEGEND", nextId, self, message.getPeerSource()), networkPort);
+                    trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LEGEND", maxLuceneIndex, self, message.getPeerSource()), networkPort);
                 } else {
                     //if (self.getPeerId().equals(new BigInteger("2")) && message.getPeerSource().getPeerId().equals(new BigInteger("1"))) {
                     if (message.getPeerSource().getPeerId().equals(new BigInteger("2"))) {
@@ -744,6 +774,9 @@ public final class Search extends ComponentDefinition {
             } else if (message.getCommand().equals("YOU_ARE_LEGEND")) {
                 if (isRunningElection) {
                     electionYesVotes++;
+                    if (message.getNextId() > nextId) {
+                        nextId = message.getNextId();
+                    }
                     if (electionYesVotes > electionParticipants / 2) {
                         announceLeadership();
                     }
