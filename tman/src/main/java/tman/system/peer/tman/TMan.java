@@ -239,40 +239,43 @@ public final class TMan extends ComponentDefinition {
         }
     }
 
+    /**
+     * Handle a TMan partners exchange request. Select a buffer to send, send it
+     * and incorporate the received buffer into the local view
+     */
     Handler<ExchangeMsg.Request> handleTManPartnersRequest = new Handler<ExchangeMsg.Request>() {
         @Override
         public void handle(ExchangeMsg.Request event) {
             ArrayList<PeerAddress> cyclonPartners = new ArrayList<PeerAddress>(lastSeenCyclonPartners);
 
+            // Set up a buffer with our neighbors, remove the receiver and add self
             List<PeerAddress> buffer = new ArrayList<PeerAddress>(tmanPartners);
             buffer.add(self);
+            buffer.remove(event.getPeerSource());
 
+            // Add a cyclon sample to the buffer, omitting the receiving peer to avoid duplicates
             addUniqueToBufferOmitting(cyclonPartners, buffer, event.getPeerSource());
 
+            // Convert the buffer to this strange format
             ArrayList<PeerDescriptor> bufferDescriptors = new ArrayList<PeerDescriptor>();
             for (PeerAddress peer : buffer) {
                 bufferDescriptors.add(new PeerDescriptor(peer));
             }
             DescriptorBuffer descriptorBuffer = new DescriptorBuffer(self, bufferDescriptors);
+
+            // Send the buffer to the receiver
             trigger(new ExchangeMsg.Response(event.getRequestId(), descriptorBuffer, self, event.getPeerSource()), networkPort);
 
-            //addUniqueToBufferOmitting(cyclonPartners, buffer, event.getPeerSource());
-
+            // Convert the buffer from the strange format to an ArrayList<PeerAddress>
             ArrayList<PeerAddress> remoteAddresses = new ArrayList<PeerAddress>();
             for (PeerDescriptor descriptor : event.getRandomBuffer().getDescriptors()) {
                 remoteAddresses.add(descriptor.getPeerAddress());
             }
 
-
+            // Merge our view and the received view and select the VIEW_SIZE highest ranked peers ar our new view
             List<PeerAddress> newTmanPartners = new ArrayList<PeerAddress>(tmanPartners);
-            //addUniqueToBufferOmitting(, newTmanPartners, self);
             addUniqueToBufferOmitting(remoteAddresses, newTmanPartners, self);
             tmanPartners = selectView(newTmanPartners);
-
-            if (tmanPartners.size() > VIEW_SIZE) {
-                System.out.println("RQ!");
-                System.exit(1);
-            }
         }
     };
     
@@ -280,24 +283,23 @@ public final class TMan extends ComponentDefinition {
         @Override
         public void handle(ExchangeMsg.Response event) {
 
-
+            // Convert the buffer from the strange format to an ArrayList<PeerAddress>
             ArrayList<PeerAddress> remoteAddresses = new ArrayList<PeerAddress>();
             for (PeerDescriptor descriptor : event.getSelectedBuffer().getDescriptors()) {
                 remoteAddresses.add(descriptor.getPeerAddress());
             }
 
+            // Merge our view and the received view and select the VIEW_SIZE highest ranked peers ar our new view
             List<PeerAddress> newTmanPartners = new ArrayList<PeerAddress>(tmanPartners);
-            //addUniqueToBufferOmitting(, newTmanPartners, self);
             addUniqueToBufferOmitting(remoteAddresses, newTmanPartners, self);
             tmanPartners = selectView(newTmanPartners);
-
-            if (tmanPartners.size() > VIEW_SIZE) {
-                System.out.println("RS!");
-                System.exit(1);
-            }
         }
     };
 
+    /**
+     * Receive notice from Search that it has detected a failed node and remove it from the view
+     * TODO: Just a lame excuse to not implement real failure detection in TMan
+     */
     Handler<TManKillNode> handleTManKillNode = new Handler<TManKillNode>() {
         @Override
         public void handle(TManKillNode message) {
