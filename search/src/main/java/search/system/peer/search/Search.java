@@ -4,6 +4,9 @@ import org.apache.lucene.search.*;
 import se.sics.kompics.timer.ScheduleTimeout;
 import search.simulator.core.SimulationAddIndexEntry;
 import search.simulator.snapshot.Snapshot;
+import se.sics.kompics.Port;
+import se.sics.kompics.PortType;
+import se.sics.kompics.Event;
 import common.configuration.SearchConfiguration;
 import common.peer.PeerAddress;
 import cyclon.system.peer.cyclon.CyclonSample;
@@ -108,11 +111,13 @@ public final class Search extends ComponentDefinition {
     // An up-to-date map describing the dead/alive state of the leader and leader candidates
     private HashMap<PeerAddress, Boolean> aliveElectors = new HashMap<PeerAddress, Boolean>();
 
+    // Trying to wrap my head around how to encapsulate behaviour and split 1000 lines long files in Kompics
+    private WebHandlers wh = new WebHandlers(new WebHandlersSearchConnector(), self, webPort, timerPort);
+
 //-------------------------------------------------------------------	
     public Search() {
 
         subscribe(handleInit, control);
-        subscribe(handleUpdateIndex, timerPort);
         subscribe(handleInspectTrigger, timerPort);
 
         subscribe(handleWebRequest, webPort);
@@ -135,6 +140,20 @@ public final class Search extends ComponentDefinition {
         // Receive AddIndexEntry messages from the Scenarios,
         subscribe(handleSimulationAddIndexEntry, networkPort);
     }
+
+    class WebHandlersSearchConnector {
+        public <P extends PortType> void trigger(Event event, Port<P> port) {
+            that.trigger(event, port);
+        }
+
+        public void addEntryAtClient(String key, String value) {
+            that.addEntryAtClient(key, value);
+        }
+
+        public String query(String query) throws IOException, ParseException {
+            return that.query(query);
+        }
+    }
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
         public void handle(SearchInit init) {
@@ -146,17 +165,10 @@ public final class Search extends ComponentDefinition {
                 e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
             self = init.getSelf();
+            wh.setSelf(self);
             int num = init.getNum();
             SearchConfiguration searchConfiguration = init.getConfiguration();
-            long period = searchConfiguration.getPeriod();
-
-            SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(period, period);
-            rst.setTimeoutEvent(new UpdateIndexTimeout(rst));
-            trigger(rst, timerPort);
-
             Snapshot.updateNum(self, num);
-            //addEntryAtClient("The Art of Computer Science", "100", true);
-
         }
     };
 
@@ -164,149 +176,19 @@ public final class Search extends ComponentDefinition {
         return isLeader;
     }
 
-//-------------------------------------------------------------------	
-    Handler<UpdateIndexTimeout> handleUpdateIndex = new Handler<UpdateIndexTimeout>() {
-        public void handle(UpdateIndexTimeout event) {
-        }
-    };
-
+    /**
+     * TODO: Remove machine specific paths in Snapshot.inspectOverlay
+     * Draw the overlay using graphviz neato and display it using eye of gnome (requires graphviz and eye of gnome)
+     */
     Handler<InspectTrigger> handleInspectTrigger = new Handler<InspectTrigger>() {
         public void handle(InspectTrigger trigger) {
             tman.simulator.snapshot.Snapshot.inspectOverlay(self.getPeerId());
         }
     };
 
-    Handler<WebRequest> handleWebRequest = new Handler<WebRequest>() {
-        public void handle(WebRequest event) {
-            if (event == null || self.getPeerAddress() == null) {
-                System.out.println("######  BONKERS!!!!!!!!!!!!!!!!!!!!  ########");
-                return;
-            }
-            if (event.getDestination() != self.getPeerAddress().getId()) {
-                return;
-            }
+    Handler<WebRequest> handleWebRequest = wh.handleWebRequest;
 
-            final String SEARCH_COMMAND = "search", ADD_COMMAND = "add", INSPECT_OVERLAY_COMMAND = "inspect";
-            List<String> allowedCommands = Arrays.asList(SEARCH_COMMAND, ADD_COMMAND, INSPECT_OVERLAY_COMMAND);
 
-            logger.debug("Handling Webpage Request");
-
-            org.mortbay.jetty.Request jettyRequest = event.getRequest();
-            String pathInfoString = jettyRequest.getPathInfo();
-            String command = "";
-            if (pathInfoString != null && !pathInfoString.equals("")) {
-                String[] pathInfos = event.getRequest().getPathInfo().split("/");
-                if (pathInfos.length != 0) {
-                    command = pathInfos[pathInfos.length - 1];
-                }
-            }
-            WebResponse response;
-            if (!allowedCommands.contains(command)) {
-                response = WebHelpers.createBadRequestResponse(event, "Invalid command!: " + command);
-            } else {
-                if (command.equals(INSPECT_OVERLAY_COMMAND)) {
-                    response = WebHelpers.createDefaultRenderedResponse(event, "Overlay drawn!", "By node " + self.getPeerId());
-                    ScheduleTimeout rst = new ScheduleTimeout(1);
-                    rst.setTimeoutEvent(new InspectTrigger(rst));
-                    trigger(rst, timerPort);
-
-                } else if (command.equals(SEARCH_COMMAND)) {
-                    String queryString = WebHelpers.getParamOrDefault(jettyRequest, "query", null);
-                    if (queryString != null) {
-                        String queryResult = null;
-                        try {
-                            queryResult = query(queryString);
-                        } catch (IOException e) {
-                            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, e);
-                        } catch (ParseException e) {
-                            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, e);
-                            e.printStackTrace();
-                        }
-                        if (queryResult != null) {
-                            response = WebHelpers.createDefaultRenderedResponse(event, "Search succeded!", queryResult);
-                        } else {
-                            response = WebHelpers.createErrorResponse(event, "Failure searching for " + queryString + "!<br />");
-                        }
-                    } else {
-                        response = WebHelpers.createBadRequestResponse(event, "Invalid query value");
-                    }
-
-                } else if (command.equals(ADD_COMMAND)) {
-                    String key = WebHelpers.getParamOrDefault(jettyRequest, "key", null);
-                    String value = WebHelpers.getParamOrDefault(jettyRequest, "value", null);
-                    if (key != null && value != null) {
-                        IOException addException = null;
-                        addEntryAtClient(key, value);
-                        if (addException == null) {
-                            response = WebHelpers.createDefaultRenderedResponse(event, "Uploaded item into network!", "Added " + key + " with value " + value + "!");
-                        } else {
-                            response = WebHelpers.createErrorResponse(event, "Failure adding " + key + " with value " + value + "!<br />" + addException.getMessage());
-                        }
-                    } else {
-                        response = WebHelpers.createBadRequestResponse(event, "Invalid key or value");
-                    }
-                } else {
-                    response = WebHelpers.createBadRequestResponse(event, "Invalid command");
-                }
-            }
-            System.out.println("Ending web request");
-            trigger(response, webPort);
-        }
-    };
-
-    static class WebHelpers {
-        public static WebResponse createBadRequestResponse(WebRequest event, String message) {
-            return new WebResponse(createBadRequestHtml(message), event, 1, 1);
-        }
-
-        public static String getParamOrDefault(org.mortbay.jetty.Request jettyRequest, String param, String defaultValue) {
-            return (jettyRequest.getParameter(param) == null ||
-                    jettyRequest.getParameter(param).equals("")) ?
-                    defaultValue : jettyRequest.getParameter(param);
-        }
-
-        public static WebResponse createErrorResponse(WebRequest event, String message) {
-            Map<String, String> params = new HashMap<String, String>();
-            params.put("title", "Error!");
-            params.put("message", message);
-            return new WebResponse(renderHtmlTemplate(getDefaultHtmlTemplate(), params), event, 1, 1);
-        }
-
-        public static WebResponse createDefaultRenderedResponse(WebRequest event, String title, String message) {
-            Map<String, String> params = new HashMap<String, String>();
-            params.put("title", title);
-            params.put("message", message);
-            return new WebResponse(renderHtmlTemplate(getDefaultHtmlTemplate(), params), event, 1, 1);
-        }
-
-        public static String getDefaultHtmlTemplate() {
-            StringBuilder sb = new StringBuilder("<!DOCTYPE html PUBLIC \"-//W3C");
-            sb.append("//DTD XHTML 1.0 Transitional//EN\" \"http://www.w3.org/TR");
-            sb.append("/xhtml1/DTD/xhtml1-transitional.dtd\"><html xmlns=\"http:");
-            sb.append("//www.w3.org/1999/xhtml\"><head><meta http-equiv=\"Conten");
-            sb.append("t-Type\" content=\"text/html; charset=utf-8\" />");
-            sb.append("<title>Adding an Entry</title>");
-            sb.append("<style type=\"text/css\"><!--.style2 {font-family: ");
-            sb.append("Arial, Helvetica, sans-serif; color: #0099FF;}--></style>");
-            sb.append("</head><body><h2 align=\"center\" class=\"style2\">");
-            sb.append("ID2210 {{ title }}</h2><br>{{ message }}</body></html>");
-            return sb.toString();
-        }
-
-        public static String renderHtmlTemplate(String html, Map<String, String> params) {
-            for (String key : params.keySet()) {
-                html = html.replaceAll("\\{\\{[\\s]?" + key + "[\\s]?}}", params.get(key));
-            }
-            return html;
-        }
-
-        public static String createBadRequestHtml(String message) {
-            Map<String, String> params = new HashMap<String, String>();
-            params.put("title", "Bad request!");
-            params.put("message", message);
-            return renderHtmlTemplate(getDefaultHtmlTemplate(), params);
-        }
-    }
 
     private void addDocuments(List<Document> documents) throws IOException {
         IndexWriter w = new IndexWriter(index, config);

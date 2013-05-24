@@ -65,7 +65,6 @@ public class Snapshot {
         peers.keySet().toArray(peersList);
 
         Snapshot.printDotFile(peersList, highlightPeer);
-        //System.out.println(str);
         Process p = null;
         try {
 
