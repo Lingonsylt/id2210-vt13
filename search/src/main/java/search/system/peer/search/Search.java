@@ -1,6 +1,5 @@
 package search.system.peer.search;
 
-import org.apache.lucene.search.*;
 import se.sics.kompics.timer.ScheduleTimeout;
 import search.simulator.core.SimulationAddIndexEntry;
 import search.simulator.snapshot.Snapshot;
@@ -15,20 +14,9 @@ import java.io.IOException;
 import java.math.BigInteger;
 import java.util.*;
 import java.util.logging.Level;
-import org.apache.lucene.analysis.standard.StandardAnalyzer;
-import org.apache.lucene.document.Document;
-import org.apache.lucene.document.Field;
-import org.apache.lucene.document.StringField;
-import org.apache.lucene.document.TextField;
-import org.apache.lucene.index.DirectoryReader;
-import org.apache.lucene.index.IndexReader;
+
 import org.apache.lucene.index.IndexWriter;
-import org.apache.lucene.index.IndexWriterConfig;
 import org.apache.lucene.queryparser.classic.ParseException;
-import org.apache.lucene.queryparser.classic.QueryParser;
-import org.apache.lucene.store.Directory;
-import org.apache.lucene.store.RAMDirectory;
-import org.apache.lucene.util.Version;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
@@ -37,11 +25,9 @@ import se.sics.kompics.Handler;
 import se.sics.kompics.Negative;
 import se.sics.kompics.Positive;
 import se.sics.kompics.network.Network;
-import se.sics.kompics.timer.SchedulePeriodicTimeout;
 import se.sics.kompics.timer.Timer;
 import se.sics.kompics.web.Web;
 import se.sics.kompics.web.WebRequest;
-import se.sics.kompics.web.WebResponse;
 import tman.system.peer.tman.*;
 
 /**
@@ -67,16 +53,12 @@ public final class Search extends ComponentDefinition {
     /**
      * Indexing
      **/
-    // The highest index in the local lucene database
-    private int maxLuceneIndex = 0;
+
 
     // If leader, the next id that should be used when adding an entry to lucene
     private int nextId = 0;
 
-    // Lucene setup
-    StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_42);
-    Directory index = new RAMDirectory();
-    IndexWriterConfig config = new IndexWriterConfig(Version.LUCENE_42, analyzer);
+
 
     // The peers closest to the top of the gradient, as discovered by cyclon. Used to route index add requests
     private ArrayList<PeerAddress> topmostCyclonPartners = new ArrayList<PeerAddress>();
@@ -112,7 +94,8 @@ public final class Search extends ComponentDefinition {
     private HashMap<PeerAddress, Boolean> aliveElectors = new HashMap<PeerAddress, Boolean>();
 
     // Trying to wrap my head around how to encapsulate behaviour and split 1000 lines long files in Kompics
-    private WebHandlers wh = new WebHandlers(new WebHandlersSearchConnector(), self, webPort, timerPort);
+    private WebService webService = new WebService(new WebServiceDepenencyManager(), self, webPort, timerPort);
+    private IndexingService indexingService = new IndexingService(self, timerPort);
 
 //-------------------------------------------------------------------	
     public Search() {
@@ -141,7 +124,7 @@ public final class Search extends ComponentDefinition {
         subscribe(handleSimulationAddIndexEntry, networkPort);
     }
 
-    class WebHandlersSearchConnector {
+    class WebServiceDepenencyManager {
         public <P extends PortType> void trigger(Event event, Port<P> port) {
             that.trigger(event, port);
         }
@@ -151,21 +134,15 @@ public final class Search extends ComponentDefinition {
         }
 
         public String query(String query) throws IOException, ParseException {
-            return that.query(query);
+            return indexingService.query(query);
         }
     }
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
         public void handle(SearchInit init) {
-            try {
-                IndexWriter w = new IndexWriter(index, config);
-                w.commit();
-                w.close();
-            } catch (IOException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-            }
+
             self = init.getSelf();
-            wh.setSelf(self);
+            webService.setSelf(self);
             int num = init.getNum();
             SearchConfiguration searchConfiguration = init.getConfiguration();
             Snapshot.updateNum(self, num);
@@ -177,34 +154,14 @@ public final class Search extends ComponentDefinition {
     }
 
     /**
-     * TODO: Remove machine specific paths in Snapshot.inspectOverlay
-     * Draw the overlay using graphviz neato and display it using eye of gnome (requires graphviz and eye of gnome)
+     * Handlers for web requests
      */
-    Handler<InspectTrigger> handleInspectTrigger = new Handler<InspectTrigger>() {
-        public void handle(InspectTrigger trigger) {
-            tman.simulator.snapshot.Snapshot.inspectOverlay(self.getPeerId());
-        }
-    };
+    Handler<InspectTrigger> handleInspectTrigger = webService.handleInspectTrigger;
+    Handler<WebRequest> handleWebRequest = webService.handleWebRequest;
 
-    Handler<WebRequest> handleWebRequest = wh.handleWebRequest;
-
-
-
-    private void addDocuments(List<Document> documents) throws IOException {
-        IndexWriter w = new IndexWriter(index, config);
-        for (Document doc : documents) {
-            w.addDocument(doc);
-            int docIndex = Integer.parseInt(doc.getField("index").stringValue());
-            if (docIndex > maxLuceneIndex) {
-                maxLuceneIndex = docIndex;
-            }
-        }
-        w.close();
+    private void addEntryAtLeader(String key, String value) throws IOException {
+        indexingService.addNewEntry(++nextId, key, value);
     }
-
-    /*private void addEntry(String key, String value) throws IOException {
-
-    }*/
 
     private void addEntryAtClient(String key, String value) {
         Snapshot.addIndexEntryInitiated();
@@ -296,95 +253,10 @@ public final class Search extends ComponentDefinition {
         }
     };
 
-
     public int getMaxLuceneIndex() {
-        return maxLuceneIndex;
+        return indexingService.getMaxLuceneIndex();
     }
 
-    private void addEntryAtLeader(String key, String value) throws IOException {
-        maxLuceneIndex = ++nextId;
-        //System.out.println("Item added: " + maxLuceneIndex + ". " + key + ", " + value);
-        Snapshot.updateMaxLeaderIndex(maxLuceneIndex);
-        Snapshot.addIndexEntryAtLeader();
-        IndexWriter w = new IndexWriter(index, config);
-        Document doc = new Document();
-        doc.add(new TextField("title", key, Field.Store.YES));
-        // You may need to make the StringField searchable by NumericRangeQuery. See:
-        // http://stackoverflow.com/questions/13958431/lucene-4-0-indexwriter-updatedocument-for-numeric-term
-        // http://lucene.apache.org/core/4_2_0/core/org/apache/lucene/document/IntField.html
-        doc.add(new StringField("id", value, Field.Store.YES));
-        doc.add(new StringField("index", String.format("%05d", maxLuceneIndex), Field.Store.YES));
-        w.addDocument(doc);
-        w.close();
-    }
-
-    private List<Document> getDocumentsSinceIndex(int sinceIndex) {
-        List<Document> documents = new LinkedList<Document>();
-
-        String queryString = "index:[" + String.format("%05d", sinceIndex) + " TO 99999]";
-        Query q = null;
-        try {
-            q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(queryString);
-        } catch (ParseException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-        }
-        IndexSearcher searcher = null;
-        IndexReader reader = null;
-        TopDocs results = null;
-        ScoreDoc[] hits = null;
-        try {
-            reader = DirectoryReader.open(index);
-            searcher = new IndexSearcher(reader);
-            results = searcher.search(q, 65536);
-            hits = results.scoreDocs;
-
-            for(int i=0;i<hits.length;++i) {
-                int docId = hits[i].doc;
-                Document d = searcher.doc(docId);
-                documents.add(d);
-            }
-        } catch (IOException ex) {
-            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-            System.exit(-1);
-        }
-
-        return documents;
-    }
-
-    private String query(String queryString) throws ParseException, IOException {
-        // the "title" arg specifies the default field to use when no field is explicitly specified in the query.
-        Query q = new QueryParser(Version.LUCENE_42, "title", analyzer).parse(queryString);
-        IndexSearcher searcher = null;
-        IndexReader reader = null;
-        try {
-            reader = DirectoryReader.open(index);
-            searcher = new IndexSearcher(reader);
-        } catch (IOException ex) {
-            java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, ex);
-            System.exit(-1);
-        }
-
-        int hitsPerPage = 10;
-        TopScoreDocCollector collector = TopScoreDocCollector.create(hitsPerPage, true);
-        searcher.search(q, collector);
-        ScoreDoc[] hits = collector.topDocs().scoreDocs;
-
-        StringBuilder sb = new StringBuilder();
-        // display results
-        sb.append("<div>Found ").append(hits.length).append(" entries.</div>");
-        sb.append("<table><tr><td>index</td><td>title</td><td>value</td>");
-        for (int i = 0; i < hits.length; ++i) {
-            int docId = hits[i].doc;
-            Document d = searcher.doc(docId);
-            sb.append("<tr><td>").append(d.get("index")).append("</td><td>").append(d.get("title")).append("</td><td>").append(d.get("id")).append("</td></tr>");
-        }
-        sb.append("</table>");
-
-        // reader can only be closed when there
-        // is no need to access the documents any more.
-        reader.close();
-        return sb.toString();
-    }
 
     private void addTopMostCyclonPartners(List<PeerAddress> parnters) {
         for(PeerAddress peer : parnters) {
@@ -486,7 +358,7 @@ public final class Search extends ComponentDefinition {
 
             if (tmanPartners.size() > 1) {
                 Snapshot.addIndexPropagationMessageSent();
-                trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), tmanPartners.get(randomGenerator.nextInt(tmanPartners.size())).getPeerAddress(), maxLuceneIndex), networkPort);
+                trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), tmanPartners.get(randomGenerator.nextInt(tmanPartners.size())).getPeerAddress(), indexingService.getMaxLuceneIndex()), networkPort);
             }
 
             checkForLeadership();
@@ -499,28 +371,19 @@ public final class Search extends ComponentDefinition {
     Handler<IndexExchangeRequest> handleIndexExchangeRequest = new Handler<IndexExchangeRequest>() {
         @Override
         public void handle(IndexExchangeRequest event) {
-            if (event.getMaxIndexID() < maxLuceneIndex) {
+            if (event.getMaxIndexID() < indexingService.getMaxLuceneIndex()) {
                 Snapshot.addIndexPropagationMessageSent();
-                trigger(new IndexExchangeResponse(self.getPeerAddress(), self.getPeerId(), event.getSource(), getDocumentsSinceIndex(event.getMaxIndexID())), networkPort);
+                trigger(new IndexExchangeResponse(self.getPeerAddress(), self.getPeerId(), event.getSource(), indexingService.getDocumentsSinceIndex(event.getMaxIndexID())), networkPort);
             }
         }
     };
-
-    String documentListToString(List<Document> documents) {
-        String output = "Documents(";
-        for (Document doc : documents) {
-            output += doc.getField("index").stringValue();
-        }
-        output += ")";
-        return output;
-    }
 
     Handler<IndexExchangeResponse> handleIndexExchangeResponse = new Handler<IndexExchangeResponse>() {
         @Override
         public void handle(IndexExchangeResponse event) {
             //System.out.println(self.toString() + " <== " + event.getSourcePeerID() + ": " + documentListToString(event.documents));
             try {
-                addDocuments(event.documents);
+                indexingService.addDocuments(event.documents);
             } catch (IOException e) {
                 e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
             }
@@ -645,7 +508,7 @@ public final class Search extends ComponentDefinition {
         public void handle(LeaderElectionMessage message) {
             if (message.getCommand().equals("AM_I_LEGEND")) {
                 if (isLowestPeer(message.getPeerSource())) {
-                    trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LEGEND", maxLuceneIndex, self, message.getPeerSource()), networkPort);
+                    trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LEGEND", indexingService.getMaxLuceneIndex(), self, message.getPeerSource()), networkPort);
                 } else {
                     //if (self.getPeerId().equals(new BigInteger("2")) && message.getPeerSource().getPeerId().equals(new BigInteger("1"))) {
                     if (message.getPeerSource().getPeerId().equals(new BigInteger("2"))) {

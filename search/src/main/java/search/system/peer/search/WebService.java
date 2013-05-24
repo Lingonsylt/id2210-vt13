@@ -20,13 +20,16 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 
-public class WebHandlers {
-    private static final Logger logger = LoggerFactory.getLogger(WebHandlers.class);
+public class WebService {
+    private static final Logger logger = LoggerFactory.getLogger(WebService.class);
+
+    // Dependencies
     private PeerAddress self;
     private Positive<Timer> timerPort;
-    Search.WebHandlersSearchConnector sc;
+    Search.WebServiceDepenencyManager sc;
     Negative<Web> webPort;
-    public WebHandlers(Search.WebHandlersSearchConnector sc, PeerAddress self, Negative<Web> webPort, Positive<Timer> timerPort) {
+
+    public WebService(Search.WebServiceDepenencyManager sc, PeerAddress self, Negative<Web> webPort, Positive<Timer> timerPort) {
         this.sc = sc;
         this.self = self;
         this.timerPort = timerPort;
@@ -112,6 +115,16 @@ public class WebHandlers {
             }
             System.out.println("Ending web request");
             sc.trigger(response, webPort);
+        }
+    };
+
+    /**
+     * TODO: Remove machine specific paths in Snapshot.inspectOverlay
+     * Draw the overlay using graphviz neato and display it using eye of gnome (requires graphviz and eye of gnome)
+     */
+    Handler<InspectTrigger> handleInspectTrigger = new Handler<InspectTrigger>() {
+        public void handle(InspectTrigger trigger) {
+            tman.simulator.snapshot.Snapshot.inspectOverlay(self.getPeerId());
         }
     };
 
