@@ -27,10 +27,6 @@ public class IndexExchangeService {
         this.indexingService = indexingService;
     }
 
-    public void setSelf(PeerAddress self) {
-        this.self = self;
-    }
-
     public Handler<IndexExchangeRequest> handleIndexExchangeRequest = new Handler<IndexExchangeRequest>() {
         @Override
         public void handle(IndexExchangeRequest event) {

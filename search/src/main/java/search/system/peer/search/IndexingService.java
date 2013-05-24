@@ -57,10 +57,6 @@ public class IndexingService {
         }
     }
 
-    public void setSelf(PeerAddress self) {
-        this.self = self;
-    }
-
     public int getMaxLuceneIndex() {
         return maxLuceneIndex;
     }

@@ -28,20 +28,16 @@ public class WebService {
     private Positive<Timer> timerPort;
     Search.TriggerDependency triggerDependency;
     Negative<Web> webPort;
-    Search.AddEntryDependency addEntryDependency;
+    IndexAddService indexAddService;
     IndexingService indexingService;
 
-    public WebService(Search.TriggerDependency triggerDependency, Search.AddEntryDependency addEntryDependency, IndexingService indexingService, PeerAddress self, Negative<Web> webPort, Positive<Timer> timerPort) {
+    public WebService(Search.TriggerDependency triggerDependency, IndexAddService indexAddService, IndexingService indexingService, PeerAddress self, Negative<Web> webPort, Positive<Timer> timerPort) {
         this.triggerDependency = triggerDependency;
-        this.addEntryDependency = addEntryDependency;
+        this.indexAddService = indexAddService;
         this.indexingService = indexingService;
         this.self = self;
         this.timerPort = timerPort;
         this.webPort = webPort;
-    }
-
-    public void setSelf(PeerAddress self) {
-        this.self = self;
     }
 
     public Handler<WebRequest> handleWebRequest = new Handler<WebRequest>() {
@@ -104,7 +100,7 @@ public class WebService {
                     String value = WebHelpers.getParamOrDefault(jettyRequest, "value", null);
                     if (key != null && value != null) {
                         IOException addException = null;
-                        addEntryDependency.addEntryAtClient(key, value);
+                        indexAddService.addEntryAtClient(key, value);
                         if (addException == null) {
                             response = WebHelpers.createDefaultRenderedResponse(event, "Uploaded item into network!", "Added " + key + " with value " + value + "!");
                         } else {
