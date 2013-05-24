@@ -183,7 +183,7 @@ public class LeaderElectionService {
             //System.out.println("2: sameNeighborsRoundCount: " + sameNeighborsRoundCount);
         }
 
-        if (tmanPartners.size() == TMan.C && sameNeighborsRoundCount >= 3) {
+        if (tmanPartners.size() == TMan.VIEW_SIZE && sameNeighborsRoundCount >= 3) {
             if (isLowestPeer(self)) {
                 initiateLeaderElection();
             } else {

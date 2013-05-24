@@ -130,6 +130,8 @@ public final class Search extends ComponentDefinition {
         public void handle(CyclonSample event) {
             Snapshot.updateSearch(self, that);
             Snapshot.report(self);
+
+            // Don't start the simulation until all peers have joined. Needed to make experiment results comparable
             if (!Snapshot.hasAllPeersJoined()) {
                 return;
             }
@@ -148,6 +150,7 @@ public final class Search extends ComponentDefinition {
     Handler<TManSample> handleTManSample = new Handler<TManSample>() {
         @Override
         public void handle(TManSample event) {
+            // Don't start the simulation until all peers have joined. Needed to make experiment results comparable
             if (!Snapshot.hasAllPeersJoined()) {
                 return;
             }

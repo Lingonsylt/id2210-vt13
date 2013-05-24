@@ -23,33 +23,35 @@ import tman.simulator.snapshot.Snapshot;
 
 public final class TMan extends ComponentDefinition {
 
+    Random randomGenerator;
+    private CyclonConfiguration cyclonConfiguration;
+
+    // Ports
     Negative<TManSamplePort> tmanPartnersPort = negative(TManSamplePort.class);
     Positive<CyclonSamplePort> cyclonSamplePort = positive(CyclonSamplePort.class);
     Positive<Network> networkPort = positive(Network.class);
     Positive<Timer> timerPort = positive(Timer.class);
-    Random randomGenerator;
-    private HashMap<UUID, PeerAddress> outstandingRequests;
-    private CyclonConfiguration cyclonConfiguration;
-    private long period;
+
+    // Myself
     private PeerAddress self;
+
+    // Outstanding requests to exchange addresses
+    private HashMap<UUID, PeerAddress> outstandingRequests;
+
+    // The current partner addresses
     private ArrayList<PeerAddress> tmanPartners;
-    private TManConfiguration tmanConfiguration;
+
+    // Last seen cyclon sample. Used to combat the asynchronicity. Might be a better way
     private ArrayList<PeerAddress> lastSeenCyclonPartners;
-    public static final int C = 6;
+
+    public static final int VIEW_SIZE = 6;
 
     public class TManSchedule extends Timeout {
-
         public TManSchedule(SchedulePeriodicTimeout request) {
-            super(request);
-        }
-
-//-------------------------------------------------------------------
-        public TManSchedule(ScheduleTimeout request) {
             super(request);
         }
     }
 
-//-------------------------------------------------------------------	
     public TMan() {
         tmanPartners = new ArrayList<PeerAddress>();
         outstandingRequests = new HashMap<UUID, PeerAddress>();
@@ -64,133 +66,81 @@ public final class TMan extends ComponentDefinition {
         subscribe(handleTManKillNode, tmanPartnersPort);
     }
 
-    String prettyPrintPeerAddressesList(List<PeerAddress> addresses) {
-        String output = "";
-        for (PeerAddress t : addresses) {
-            output += t.toString() + ", ";
-        }
-        return output;
-    }
 //-------------------------------------------------------------------	
     Handler<TManInit> handleInit = new Handler<TManInit>() {
         @Override
         public void handle(TManInit init) {
             self = init.getSelf();
-            tmanConfiguration = init.getConfiguration();
+            TManConfiguration tmanConfiguration = init.getConfiguration();
             cyclonConfiguration = init.getCyclonConfiguration();
-            period = tmanConfiguration.getPeriod();
             Snapshot.addPeer(self);
 
-            SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(period, period);
+            SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(tmanConfiguration.getPeriod(), tmanConfiguration.getPeriod());
             rst.setTimeoutEvent(new TManSchedule(rst));
             trigger(rst, timerPort);
-
-            /*self = new PeerAddress(null, BigInteger.valueOf(5));
-            List<PeerAddress> pa = new ArrayList<PeerAddress>();
-
-            pa.add(new PeerAddress(null, BigInteger.valueOf(1)));
-            pa.add(new PeerAddress(null, BigInteger.valueOf(2)));
-            //pa.add(new PeerAddress(null, BigInteger.valueOf(3)));
-            pa.add(new PeerAddress(null, BigInteger.valueOf(4)));
-            pa.add(new PeerAddress(null, BigInteger.valueOf(5)));
-            //pa.add(new PeerAddress(null, BigInteger.valueOf(6)));
-            pa.add(new PeerAddress(null, BigInteger.valueOf(7)));
-            pa.add(new PeerAddress(null, BigInteger.valueOf(8)));
-            pa.add(new PeerAddress(null, BigInteger.valueOf(9)));
-            pa.add(new PeerAddress(null, BigInteger.valueOf(10)));
-            pa.add(new PeerAddress(null, BigInteger.valueOf(11)));
-
-
-            Collections.sort(pa, rankingComparator);
-            prettyPrintPeerAddressesList(selectView(pa));
-
-            for (int i = 0; i < 100; i++) {
-                System.out.println(selectPeer(pa));
-            }
-
-
-            prettyPrintPeerAddressesList(pa);
-            System.exit(0);*/
         }
     };
 //-------------------------------------------------------------------	
     Handler<TManSchedule> handleRound = new Handler<TManSchedule>() {
         @Override
         public void handle(TManSchedule event) {
+            // Don't start the simulation until all peers have joined. Needed to make experiment results comparable
             if (!Snapshot.hasAllPeersJoined()) {
                 return;
             }
-
-            if (tmanPartners.size() > C) {
-                System.out.println("HR!");
-                System.exit(1);
-            }
-            Snapshot.updateTManPartners(self, tmanPartners);
-            Snapshot.updateCyclonPartners(self, lastSeenCyclonPartners);
-
-            // Publish sample to connected components
-            trigger(new TManSample(tmanPartners), tmanPartnersPort);            
         }
     };
 
-    /*Comparator<PeerAddress> rankingComparator = new Comparator<PeerAddress>() {
-        public int compare(PeerAddress left, PeerAddress right) {
-            BigInteger rankLeft = rankingFunction(left.getPeerId());
-            BigInteger rankRight = rankingFunction(right.getPeerId());
-            if (rankLeft == null && rankRight == null) {
-                return 0;
-            } else if (rankLeft == null) {
-                return 1;
-            } else if (rankRight == null) {
-                return -1;
-            } else {
-                return rankLeft.compareTo(rankRight);
-            }
-        }};*/
-
+    /**
+     * Comparator used to rank peers with lower id, but closer to oneself, higher - and peers with higher id
+     * and further away ranked lower
+     */
     Comparator<PeerAddress> rankingComparator = new Comparator<PeerAddress>() {
         public int compare(PeerAddress left, PeerAddress right) {
+            // Two null peers are ranked the same
             if (left.getPeerId() == null && right.getPeerId() == null) {
                 return 0;
+
+            // Non-null peer ranked higher than null-peer
             } else if (left.getPeerId() == null) {
                 return -1;
+                // Non-null peer ranked higher than null-peer
             } else if (right.getPeerId() == null) {
                 return 1;
             } else {
+                // If both peers have higher id than us, the closest is better
                 if (left.getPeerId().compareTo(self.getPeerId()) > 0 && right.getPeerId().compareTo(self.getPeerId()) > 0) {
                     return left.compareTo(right);
 
+                // If left peer is higher than us and right peer is lower. Right peer has better rank
                 } else if (left.getPeerId().compareTo(self.getPeerId()) > 0) {
                     return 1;
 
+                // If right peer is higher than us and left peer is lower. Left peer has better rank
                 } else if (right.getPeerId().compareTo(self.getPeerId()) > 0) {
                     return -1;
 
+                // If both peers are lower than us, the closest is better
                 } else {
                     return right.compareTo(left);
                 }
             }
         }};
 
-    BigInteger rankingFunction(BigInteger item) {
-        if (item.equals(self.getPeerId())) {
-            throw new RuntimeException("Cannot compare to self!");
-        }
-
-        //if (item.compareTo(self.getPeerId()) < 0) {
-        //    return null;
-        //} else {
-        return item.subtract(self.getPeerId());
-        //}
-    }
-
+    /**
+     * Add a number of peers to a buffer, omitting specified peers and duplicates
+     */
     void addUniqueToBufferOmitting(List<PeerAddress> add, List<PeerAddress> buffer, PeerAddress... omitting) {
         addUniqueToBufferOmitting(add, buffer, false, omitting);
     }
 
+    /**
+     * Add a number of peers to a buffer, omitting specified peers and duplicates.
+     * Keeping buffer size below or equal to VIEW_SIZE if required
+     */
     void addUniqueToBufferOmitting(List<PeerAddress> add, List<PeerAddress> buffer, boolean keepRoof, PeerAddress... omitting) {
         for (PeerAddress peerAddress : add) {
-            if (keepRoof && buffer.size() == C) {
+            if (keepRoof && buffer.size() == VIEW_SIZE) {
                 break;
             }
             if (!buffer.contains(peerAddress)) {
@@ -208,32 +158,9 @@ public final class TMan extends ComponentDefinition {
         }
     }
 
-    void addUniqueToBufferOmitting(PeerAddress add, List<PeerAddress> buffer, PeerAddress... omitting) {
-        if (!buffer.contains(add)) {
-            boolean omit = false;
-            for (PeerAddress omitPeer : omitting) {
-                if (add.equals(omitPeer)) {
-                    omit = true;
-                    break;
-                }
-            }
-            if (!omit) {
-                buffer.add(add);
-            }
-        }
-    }
-
-    void addToBufferTillMax(List<PeerAddress> add, List<PeerAddress> buffer) {
-        for (PeerAddress peerAddress : add) {
-            if (buffer.size() == C) {
-                break;
-            }
-            if (!buffer.contains(peerAddress)) {
-                buffer.add(peerAddress);
-            }
-        }
-    }
-
+    /**
+     * Select a random peer among the top half of the ranked peers
+     */
     PeerAddress selectPeer(List<PeerAddress> view) {
         List<PeerAddress> sortCopy = new ArrayList<PeerAddress>(view);
         Collections.sort(sortCopy, rankingComparator);
@@ -242,12 +169,15 @@ public final class TMan extends ComponentDefinition {
         return sortCopy.get(randomPeerIndex);
     }
 
+    /**
+     * Pick the top VIEW_SIZE peers among the ranked peers
+     */
     ArrayList<PeerAddress> selectView(List<PeerAddress> view) {
         List<PeerAddress> sortCopy = new ArrayList<PeerAddress>(view);
         Collections.sort(sortCopy, rankingComparator);
 
         ArrayList<PeerAddress> result = new ArrayList<PeerAddress>();
-        int stopAt = Math.min(C, view.size());
+        int stopAt = Math.min(VIEW_SIZE, view.size());
         for (int i = 0; i < stopAt; i++) {
             result.add(sortCopy.get(i));
         }
@@ -265,22 +195,23 @@ public final class TMan extends ComponentDefinition {
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
+            // Don't start the simulation until all peers have joined. Needed to make experiment results comparable
             if(!Snapshot.hasAllPeersJoined()) {
                 return;
             }
             ArrayList<PeerAddress> cyclonPartners = event.getSample();
 
-            if (tmanPartners.size() != 0) {
+            Snapshot.updateTManPartners(self, tmanPartners);
+            Snapshot.updateCyclonPartners(self, cyclonPartners);
 
+
+
+
+
+            if (tmanPartners.size() != 0) {
                 lastSeenCyclonPartners = new ArrayList<PeerAddress>(cyclonPartners);
 
 
-                /*Collections.sort(buffer, rankingComparator);
-
-                int halfBufferSize = buffer.size() / 2;
-                int randomPeerIndex = randomGenerator.nextInt(halfBufferSize + 1);
-
-                PeerAddress receivingPeer = buffer.get(randomPeerIndex);*/
                 PeerAddress receivingPeer = selectPeer(tmanPartners);
                 List<PeerAddress> buffer = new ArrayList<PeerAddress>(tmanPartners);
                 buffer.remove(receivingPeer);
@@ -302,26 +233,16 @@ public final class TMan extends ComponentDefinition {
                 trigger(new ExchangeMsg.Request(rTimeoutId, descriptorBuffer, self, receivingPeer), networkPort);
             } else {
                 addUniqueToBufferOmitting(cyclonPartners, tmanPartners, true, self);
-                if (tmanPartners.size() > C) {
+                if (tmanPartners.size() > VIEW_SIZE) {
                     System.out.println("CY!");
                     System.exit(1);
                 }
-                /*for (PeerAddress peerAddress : cyclonPartners) {
-                    if (!peerAddress.getPeerId().equals(self.getPeerId())) {
-                        tmanPartners.add(peerAddress);
-                    }
-                }*/
             }
+
+            // Publish sample to connected components
+            trigger(new TManSample(tmanPartners), tmanPartnersPort);
         }
     };
-
-    String peerAddressListToString(List<PeerAddress> addresses) {
-        String output = "";
-        for (PeerAddress address : addresses) {
-            output += address.getPeerId() + ", ";
-        }
-        return output;
-    }
 
     Handler<TManKillNode> handleTManKillNode = new Handler<TManKillNode>() {
         @Override
@@ -361,7 +282,7 @@ public final class TMan extends ComponentDefinition {
             addUniqueToBufferOmitting(remoteAddresses, newTmanPartners, self);
             tmanPartners = selectView(newTmanPartners);
 
-            if (tmanPartners.size() > C) {
+            if (tmanPartners.size() > VIEW_SIZE) {
                 System.out.println("RQ!");
                 System.exit(1);
             }
@@ -383,7 +304,7 @@ public final class TMan extends ComponentDefinition {
             addUniqueToBufferOmitting(remoteAddresses, newTmanPartners, self);
             tmanPartners = selectView(newTmanPartners);
 
-            if (tmanPartners.size() > C) {
+            if (tmanPartners.size() > VIEW_SIZE) {
                 System.out.println("RS!");
                 System.exit(1);
             }
