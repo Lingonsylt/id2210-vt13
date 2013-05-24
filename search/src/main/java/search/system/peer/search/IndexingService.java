@@ -32,7 +32,7 @@ public class IndexingService {
     // Dependencies
     private PeerAddress self;
     private Positive<Timer> timerPort;
-    Search.WebServiceDepenencyManager sc;
+    Search.TriggerDependency sc;
 
     // Lucene setup
     StandardAnalyzer analyzer = new StandardAnalyzer(Version.LUCENE_42);

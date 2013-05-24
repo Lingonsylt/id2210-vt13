@@ -26,11 +26,15 @@ public class WebService {
     // Dependencies
     private PeerAddress self;
     private Positive<Timer> timerPort;
-    Search.WebServiceDepenencyManager sc;
+    Search.TriggerDependency triggerDependency;
     Negative<Web> webPort;
+    Search.AddEntryDependency addEntryDependency;
+    IndexingService indexingService;
 
-    public WebService(Search.WebServiceDepenencyManager sc, PeerAddress self, Negative<Web> webPort, Positive<Timer> timerPort) {
-        this.sc = sc;
+    public WebService(Search.TriggerDependency triggerDependency, Search.AddEntryDependency addEntryDependency, IndexingService indexingService, PeerAddress self, Negative<Web> webPort, Positive<Timer> timerPort) {
+        this.triggerDependency = triggerDependency;
+        this.addEntryDependency = addEntryDependency;
+        this.indexingService = indexingService;
         this.self = self;
         this.timerPort = timerPort;
         this.webPort = webPort;
@@ -72,14 +76,14 @@ public class WebService {
                     response = WebHelpers.createDefaultRenderedResponse(event, "Overlay drawn!", "By node " + self.getPeerId());
                     ScheduleTimeout rst = new ScheduleTimeout(1);
                     rst.setTimeoutEvent(new InspectTrigger(rst));
-                    sc.trigger(rst, timerPort);
+                    triggerDependency.trigger(rst, timerPort);
 
                 } else if (command.equals(SEARCH_COMMAND)) {
                     String queryString = WebHelpers.getParamOrDefault(jettyRequest, "query", null);
                     if (queryString != null) {
                         String queryResult = null;
                         try {
-                            queryResult = sc.query(queryString);
+                            queryResult = indexingService.query(queryString);
                         } catch (IOException e) {
                             java.util.logging.Logger.getLogger(Search.class.getName()).log(Level.SEVERE, null, e);
                         } catch (ParseException e) {
@@ -100,7 +104,7 @@ public class WebService {
                     String value = WebHelpers.getParamOrDefault(jettyRequest, "value", null);
                     if (key != null && value != null) {
                         IOException addException = null;
-                        sc.addEntryAtClient(key, value);
+                        addEntryDependency.addEntryAtClient(key, value);
                         if (addException == null) {
                             response = WebHelpers.createDefaultRenderedResponse(event, "Uploaded item into network!", "Added " + key + " with value " + value + "!");
                         } else {
@@ -114,7 +118,7 @@ public class WebService {
                 }
             }
             System.out.println("Ending web request");
-            sc.trigger(response, webPort);
+            triggerDependency.trigger(response, webPort);
         }
     };
 

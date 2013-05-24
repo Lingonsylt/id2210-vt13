@@ -15,7 +15,6 @@ import java.math.BigInteger;
 import java.util.*;
 import java.util.logging.Level;
 
-import org.apache.lucene.index.IndexWriter;
 import org.apache.lucene.queryparser.classic.ParseException;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -94,8 +93,10 @@ public final class Search extends ComponentDefinition {
     private HashMap<PeerAddress, Boolean> aliveElectors = new HashMap<PeerAddress, Boolean>();
 
     // Trying to wrap my head around how to encapsulate behaviour and split 1000 lines long files in Kompics
-    private WebService webService = new WebService(new WebServiceDepenencyManager(), self, webPort, timerPort);
+
     private IndexingService indexingService = new IndexingService(self, timerPort);
+    private IndexExchangeService indexExchangeService = new IndexExchangeService(new TriggerDependency(), indexingService, self, networkPort);
+    private WebService webService = new WebService(new TriggerDependency(), new AddEntryDependency(), indexingService, self, webPort, timerPort);
 
 //-------------------------------------------------------------------	
     public Search() {
@@ -124,24 +125,25 @@ public final class Search extends ComponentDefinition {
         subscribe(handleSimulationAddIndexEntry, networkPort);
     }
 
-    class WebServiceDepenencyManager {
+    class TriggerDependency {
         public <P extends PortType> void trigger(Event event, Port<P> port) {
             that.trigger(event, port);
         }
+    }
 
+    class AddEntryDependency {
         public void addEntryAtClient(String key, String value) {
             that.addEntryAtClient(key, value);
         }
-
-        public String query(String query) throws IOException, ParseException {
-            return indexingService.query(query);
-        }
     }
+
 //-------------------------------------------------------------------	
     Handler<SearchInit> handleInit = new Handler<SearchInit>() {
         public void handle(SearchInit init) {
 
             self = init.getSelf();
+            indexingService.setSelf(self);
+            indexExchangeService.setSelf(self);
             webService.setSelf(self);
             int num = init.getNum();
             SearchConfiguration searchConfiguration = init.getConfiguration();
@@ -158,6 +160,9 @@ public final class Search extends ComponentDefinition {
      */
     Handler<InspectTrigger> handleInspectTrigger = webService.handleInspectTrigger;
     Handler<WebRequest> handleWebRequest = webService.handleWebRequest;
+
+    public Handler<IndexExchangeRequest> handleIndexExchangeRequest = indexExchangeService.handleIndexExchangeRequest;
+    public Handler<IndexExchangeResponse> handleIndexExchangeResponse = indexExchangeService.handleIndexExchangeResponse;
 
     private void addEntryAtLeader(String key, String value) throws IOException {
         indexingService.addNewEntry(++nextId, key, value);
@@ -368,27 +373,7 @@ public final class Search extends ComponentDefinition {
         }
     };
 
-    Handler<IndexExchangeRequest> handleIndexExchangeRequest = new Handler<IndexExchangeRequest>() {
-        @Override
-        public void handle(IndexExchangeRequest event) {
-            if (event.getMaxIndexID() < indexingService.getMaxLuceneIndex()) {
-                Snapshot.addIndexPropagationMessageSent();
-                trigger(new IndexExchangeResponse(self.getPeerAddress(), self.getPeerId(), event.getSource(), indexingService.getDocumentsSinceIndex(event.getMaxIndexID())), networkPort);
-            }
-        }
-    };
 
-    Handler<IndexExchangeResponse> handleIndexExchangeResponse = new Handler<IndexExchangeResponse>() {
-        @Override
-        public void handle(IndexExchangeResponse event) {
-            //System.out.println(self.toString() + " <== " + event.getSourcePeerID() + ": " + documentListToString(event.documents));
-            try {
-                indexingService.addDocuments(event.documents);
-            } catch (IOException e) {
-                e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
-            }
-        }
-    };
 
     public void initiateLeaderElection() {
         if (!isLeader && !isRunningElection) {
