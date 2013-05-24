@@ -20,6 +20,12 @@ import se.sics.kompics.Positive;
 import se.sics.kompics.network.Network;
 import se.sics.kompics.timer.Timer;
 import se.sics.kompics.web.Web;
+import search.system.peer.search.indexadd.IndexAddService;
+import search.system.peer.search.indexexchange.IndexExchangeService;
+import search.system.peer.search.indexing.IndexingService;
+import search.system.peer.search.indexnextid.IndexNextIdService;
+import search.system.peer.search.leaderelection.LeaderElectionService;
+import search.system.peer.search.web.WebService;
 import tman.system.peer.tman.*;
 
 public final class Search extends ComponentDefinition {
@@ -95,7 +101,7 @@ public final class Search extends ComponentDefinition {
      * Wrapper around dependency for Search.trigger().
      * Used to expose .trigger() to services without breaking contract
      */
-    class TriggerDependency {
+    public class TriggerDependency {
         public <P extends PortType> void trigger(Event event, Port<P> port) {
             // Relay call to Search().trigger()
             that.trigger(event, port);
@@ -146,6 +152,7 @@ public final class Search extends ComponentDefinition {
                 return;
             }
             leaderElectionService.receiveTManSample(event.getSample());
+            indexExchangeService.receiveTManSample(event.getSample());
         }
     };
 

@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.web;
 
 import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timeout;

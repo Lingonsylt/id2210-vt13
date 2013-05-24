@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.indexexchange;
 
 import se.sics.kompics.address.Address;
 import se.sics.kompics.network.Message;

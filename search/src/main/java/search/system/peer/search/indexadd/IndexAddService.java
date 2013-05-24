@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.indexadd;
 
 import common.peer.PeerAddress;
 import org.slf4j.Logger;
@@ -9,6 +9,10 @@ import se.sics.kompics.network.Network;
 import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timer;
 import search.simulator.snapshot.Snapshot;
+import search.system.peer.search.indexnextid.IndexNextIdService;
+import search.system.peer.search.indexing.IndexingService;
+import search.system.peer.search.Search;
+import search.system.peer.search.leaderelection.LeaderElectionService;
 
 import java.io.IOException;
 import java.util.ArrayList;
@@ -90,7 +94,7 @@ public class IndexAddService {
 
     }
 
-    Handler<LeaderRequestMessage> handleLeaderRequestMessage = new Handler<LeaderRequestMessage>() {
+    public Handler<LeaderRequestMessage> handleLeaderRequestMessage = new Handler<LeaderRequestMessage>() {
         @Override
         public void handle(LeaderRequestMessage request) {
             if (leaderElectionService.isLeader()) {
@@ -108,7 +112,7 @@ public class IndexAddService {
         }
     };
 
-    Handler<LeaderResponseMessage> handleLeaderResponseMessage = new Handler<LeaderResponseMessage>() {
+    public Handler<LeaderResponseMessage> handleLeaderResponseMessage = new Handler<LeaderResponseMessage>() {
         @Override
         public void handle(LeaderResponseMessage response) {
             //System.out.println(self.getPeerId() + ": Successfully added an entry at leader!");
@@ -180,7 +184,7 @@ public class IndexAddService {
         return bottom;
     }
 
-    Handler<LeaderRequestMessageTimeout> handleLeaderRequestMessageTimeout = new Handler<LeaderRequestMessageTimeout>() {
+    public Handler<LeaderRequestMessageTimeout> handleLeaderRequestMessageTimeout = new Handler<LeaderRequestMessageTimeout>() {
         public void handle(LeaderRequestMessageTimeout message) {
             LeaderRequestMessage outstanding = outstandingLeaderRequests.get(message.getRequestID());
             if (outstanding != null) {

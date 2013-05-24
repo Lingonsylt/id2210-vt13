@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.leaderelection;
 
 import common.peer.PeerAddress;
 import se.sics.kompics.timer.ScheduleTimeout;

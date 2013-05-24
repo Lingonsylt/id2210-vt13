@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.leaderelection;
 
 import common.peer.PeerAddress;
 import org.slf4j.Logger;
@@ -9,6 +9,9 @@ import se.sics.kompics.network.Network;
 import se.sics.kompics.timer.ScheduleTimeout;
 import se.sics.kompics.timer.Timer;
 import search.simulator.snapshot.Snapshot;
+import search.system.peer.search.indexnextid.IndexNextIdService;
+import search.system.peer.search.indexing.IndexingService;
+import search.system.peer.search.Search;
 import tman.system.peer.tman.TMan;
 import tman.system.peer.tman.TManKillNode;
 import tman.system.peer.tman.TManSamplePort;
@@ -28,7 +31,6 @@ public class LeaderElectionService {
     Positive<Timer> timerPort;
     IndexNextIdService indexNextIdService;
 
-    Random randomGenerator = new Random();
     private boolean isLeader = false;
     private boolean isRunningElection = false;
     private int electionYesVotes = 0;
@@ -65,10 +67,6 @@ public class LeaderElectionService {
 
     public void receiveTManSample(ArrayList<PeerAddress> tmanSample) {
         tmanPartners = tmanSample;
-        if (tmanPartners.size() > 1) {
-            Snapshot.addIndexPropagationMessageSent();
-            triggerDependency.trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), tmanPartners.get(randomGenerator.nextInt(tmanPartners.size())).getPeerAddress(), indexingService.getMaxLuceneIndex()), networkPort);
-        }
 
         checkForLeadership();
         heartbeatElectors();
@@ -76,7 +74,7 @@ public class LeaderElectionService {
         tmanPartnersLastRound = new ArrayList<PeerAddress>(tmanPartners);
     }
 
-    Handler<LeaderHeartbeatTimeout> handleLeaderHeartbeatTimeout = new Handler<LeaderHeartbeatTimeout>() {
+    public Handler<LeaderHeartbeatTimeout> handleLeaderHeartbeatTimeout = new Handler<LeaderHeartbeatTimeout>() {
         public void handle(LeaderHeartbeatTimeout message) {
             if (outstandingElectorHearbeats.containsKey(message.getRequestID())) {
                 if (self.getPeerId().equals(new BigInteger("2"))) {
@@ -219,7 +217,7 @@ public class LeaderElectionService {
         }
     }
 
-    Handler<LeaderElectionMessage> handleLeaderElectionIncoming = new Handler<LeaderElectionMessage>() {
+    public Handler<LeaderElectionMessage> handleLeaderElectionIncoming = new Handler<LeaderElectionMessage>() {
         @Override
         public void handle(LeaderElectionMessage message) {
             if (message.getCommand().equals("AM_I_LEGEND")) {

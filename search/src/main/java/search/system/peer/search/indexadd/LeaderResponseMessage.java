@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.indexadd;
 
 import common.peer.PeerAddress;
 import common.peer.PeerMessage;

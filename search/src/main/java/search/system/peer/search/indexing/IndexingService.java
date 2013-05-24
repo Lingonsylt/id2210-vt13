@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.indexing;
 
 import common.peer.PeerAddress;
 import org.apache.lucene.analysis.standard.StandardAnalyzer;
@@ -21,6 +21,7 @@ import org.slf4j.LoggerFactory;
 import se.sics.kompics.Positive;
 import se.sics.kompics.timer.Timer;
 import search.simulator.snapshot.Snapshot;
+import search.system.peer.search.Search;
 
 import java.io.IOException;
 import java.util.*;

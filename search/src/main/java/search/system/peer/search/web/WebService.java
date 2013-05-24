@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.web;
 
 import common.peer.PeerAddress;
 import org.apache.lucene.queryparser.classic.ParseException;
@@ -12,6 +12,9 @@ import se.sics.kompics.timer.Timer;
 import se.sics.kompics.web.Web;
 import se.sics.kompics.web.WebRequest;
 import se.sics.kompics.web.WebResponse;
+import search.system.peer.search.indexing.IndexingService;
+import search.system.peer.search.Search;
+import search.system.peer.search.indexadd.IndexAddService;
 
 import java.io.IOException;
 import java.util.Arrays;
@@ -122,7 +125,7 @@ public class WebService {
      * TODO: Remove machine specific paths in Snapshot.inspectOverlay
      * Draw the overlay using graphviz neato and display it using eye of gnome (requires graphviz and eye of gnome)
      */
-    Handler<InspectTrigger> handleInspectTrigger = new Handler<InspectTrigger>() {
+    public Handler<InspectTrigger> handleInspectTrigger = new Handler<InspectTrigger>() {
         public void handle(InspectTrigger trigger) {
             tman.simulator.snapshot.Snapshot.inspectOverlay(self.getPeerId());
         }

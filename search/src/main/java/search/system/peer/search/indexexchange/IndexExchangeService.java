@@ -1,4 +1,4 @@
-package search.system.peer.search;
+package search.system.peer.search.indexexchange;
 
 import common.peer.PeerAddress;
 import org.slf4j.Logger;
@@ -6,10 +6,13 @@ import org.slf4j.LoggerFactory;
 import se.sics.kompics.Handler;
 import se.sics.kompics.Positive;
 import se.sics.kompics.network.Network;
-import se.sics.kompics.timer.Timer;
 import search.simulator.snapshot.Snapshot;
+import search.system.peer.search.indexing.IndexingService;
+import search.system.peer.search.Search;
 
 import java.io.IOException;
+import java.util.List;
+import java.util.Random;
 
 public class IndexExchangeService {
     private static final Logger logger = LoggerFactory.getLogger(IndexExchangeService.class);
@@ -20,12 +23,22 @@ public class IndexExchangeService {
     Search.TriggerDependency triggerDependency;
     IndexingService indexingService;
 
+    Random randomGenerator = new Random();
+
     public IndexExchangeService(Search.TriggerDependency triggerDependency, IndexingService indexingService, PeerAddress self, Positive<Network> networkPort) {
         this.triggerDependency = triggerDependency;
         this.self = self;
         this.networkPort = networkPort;
         this.indexingService = indexingService;
     }
+
+    public void receiveTManSample(List<PeerAddress> tmanSample) {
+        if (tmanSample.size() > 1) {
+            Snapshot.addIndexPropagationMessageSent();
+            triggerDependency.trigger(new IndexExchangeRequest(self.getPeerAddress(), self.getPeerId(), tmanSample.get(randomGenerator.nextInt(tmanSample.size())).getPeerAddress(), indexingService.getMaxLuceneIndex()), networkPort);
+        }
+    }
+
 
     public Handler<IndexExchangeRequest> handleIndexExchangeRequest = new Handler<IndexExchangeRequest>() {
         @Override
