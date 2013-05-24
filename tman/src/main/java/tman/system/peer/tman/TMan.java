@@ -36,6 +36,7 @@ public final class TMan extends ComponentDefinition {
     private PeerAddress self;
 
     // Outstanding requests to exchange addresses
+    // TODO: The reaction to timeouts is not implemented
     private HashMap<UUID, PeerAddress> outstandingRequests;
 
     // The current partner addresses
@@ -59,14 +60,12 @@ public final class TMan extends ComponentDefinition {
         lastSeenCyclonPartners = new ArrayList<PeerAddress>();
 
         subscribe(handleInit, control);
-        subscribe(handleRound, timerPort);
         subscribe(handleCyclonSample, cyclonSamplePort);
         subscribe(handleTManPartnersResponse, networkPort);
         subscribe(handleTManPartnersRequest, networkPort);
         subscribe(handleTManKillNode, tmanPartnersPort);
     }
 
-//-------------------------------------------------------------------	
     Handler<TManInit> handleInit = new Handler<TManInit>() {
         @Override
         public void handle(TManInit init) {
@@ -78,16 +77,6 @@ public final class TMan extends ComponentDefinition {
             SchedulePeriodicTimeout rst = new SchedulePeriodicTimeout(tmanConfiguration.getPeriod(), tmanConfiguration.getPeriod());
             rst.setTimeoutEvent(new TManSchedule(rst));
             trigger(rst, timerPort);
-        }
-    };
-//-------------------------------------------------------------------	
-    Handler<TManSchedule> handleRound = new Handler<TManSchedule>() {
-        @Override
-        public void handle(TManSchedule event) {
-            // Don't start the simulation until all peers have joined. Needed to make experiment results comparable
-            if (!Snapshot.hasAllPeersJoined()) {
-                return;
-            }
         }
     };
 
@@ -160,6 +149,7 @@ public final class TMan extends ComponentDefinition {
 
     /**
      * Select a random peer among the top half of the ranked peers
+     * A peer close to us
      */
     PeerAddress selectPeer(List<PeerAddress> view) {
         List<PeerAddress> sortCopy = new ArrayList<PeerAddress>(view);
@@ -185,13 +175,9 @@ public final class TMan extends ComponentDefinition {
 
     }
 
-
-
-
-
-
-
-//-------------------------------------------------------------------
+    /**
+     * Receive a cyclon sample, update statistics, trigger a tman partners request and publish tman sample
+     */
     Handler<CyclonSample> handleCyclonSample = new Handler<CyclonSample>() {
         @Override
         public void handle(CyclonSample event) {
@@ -199,59 +185,60 @@ public final class TMan extends ComponentDefinition {
             if(!Snapshot.hasAllPeersJoined()) {
                 return;
             }
-            ArrayList<PeerAddress> cyclonPartners = event.getSample();
 
+            ArrayList<PeerAddress> cyclonPartners = event.getSample();
+            lastSeenCyclonPartners = new ArrayList<PeerAddress>(cyclonPartners);
+
+            // Report statistics
             Snapshot.updateTManPartners(self, tmanPartners);
             Snapshot.updateCyclonPartners(self, cyclonPartners);
 
-
-
-
-
-            if (tmanPartners.size() != 0) {
-                lastSeenCyclonPartners = new ArrayList<PeerAddress>(cyclonPartners);
-
-
-                PeerAddress receivingPeer = selectPeer(tmanPartners);
-                List<PeerAddress> buffer = new ArrayList<PeerAddress>(tmanPartners);
-                buffer.remove(receivingPeer);
-                buffer.add(self);
-
-                addUniqueToBufferOmitting(cyclonPartners, buffer, receivingPeer);
-
-                ScheduleTimeout rst = new ScheduleTimeout(cyclonConfiguration.getShuffleTimeout());
-                rst.setTimeoutEvent(new ShuffleTimeout(rst, receivingPeer));
-                UUID rTimeoutId = rst.getTimeoutEvent().getTimeoutId();
-
-                outstandingRequests.put(rTimeoutId, receivingPeer);
-
-                ArrayList<PeerDescriptor> bufferDescriptors = new ArrayList<PeerDescriptor>();
-                for (PeerAddress peer : buffer) {
-                    bufferDescriptors.add(new PeerDescriptor(peer));
-                }
-                DescriptorBuffer descriptorBuffer = new DescriptorBuffer(self, bufferDescriptors);
-                trigger(new ExchangeMsg.Request(rTimeoutId, descriptorBuffer, self, receivingPeer), networkPort);
-            } else {
-                addUniqueToBufferOmitting(cyclonPartners, tmanPartners, true, self);
-                if (tmanPartners.size() > VIEW_SIZE) {
-                    System.out.println("CY!");
-                    System.exit(1);
-                }
-            }
+            // Initiate a partners request
+            triggerTManPartnersRequest(cyclonPartners);
 
             // Publish sample to connected components
             trigger(new TManSample(tmanPartners), tmanPartnersPort);
         }
     };
 
-    Handler<TManKillNode> handleTManKillNode = new Handler<TManKillNode>() {
-        @Override
-        public void handle(TManKillNode message) {
-            tmanPartners.remove(message.getNode());
-        }
-    };
+    /**
+     * Set up a TMan partners request and send it to a peer close in rank to us
+     */
+    private void triggerTManPartnersRequest(List<PeerAddress> cyclonPartners) {
+        if (tmanPartners.size() != 0) {
+            // Select a peer close to us
+            PeerAddress receivingPeer = selectPeer(tmanPartners);
 
-//-------------------------------------------------------------------	
+            // Set up a buffer with our neighbors, remove the receiver and add self
+            List<PeerAddress> buffer = new ArrayList<PeerAddress>(tmanPartners);
+            buffer.remove(receivingPeer);
+            buffer.add(self);
+
+            // Add a cyclon sample to the buffer, omitting the receiving peer to avoid duplicates
+            addUniqueToBufferOmitting(cyclonPartners, buffer, receivingPeer);
+
+            // Set up a timeout for the request, to detect failed communication
+            // TODO: The reaction to timeouts is not implemented
+            ScheduleTimeout rst = new ScheduleTimeout(cyclonConfiguration.getShuffleTimeout());
+            rst.setTimeoutEvent(new ShuffleTimeout(rst, receivingPeer));
+            UUID rTimeoutId = rst.getTimeoutEvent().getTimeoutId();
+            outstandingRequests.put(rTimeoutId, receivingPeer);
+
+            // Convert the buffer to this strange format
+            ArrayList<PeerDescriptor> bufferDescriptors = new ArrayList<PeerDescriptor>();
+            for (PeerAddress peer : buffer) {
+                bufferDescriptors.add(new PeerDescriptor(peer));
+            }
+            DescriptorBuffer descriptorBuffer = new DescriptorBuffer(self, bufferDescriptors);
+
+            // Send the buffer to the receiver
+            trigger(new ExchangeMsg.Request(rTimeoutId, descriptorBuffer, self, receivingPeer), networkPort);
+        } else {
+            // If our tman view is completely empty, fill it with cyclon samples
+            addUniqueToBufferOmitting(cyclonPartners, tmanPartners, true, self);
+        }
+    }
+
     Handler<ExchangeMsg.Request> handleTManPartnersRequest = new Handler<ExchangeMsg.Request>() {
         @Override
         public void handle(ExchangeMsg.Request event) {
@@ -308,6 +295,13 @@ public final class TMan extends ComponentDefinition {
                 System.out.println("RS!");
                 System.exit(1);
             }
+        }
+    };
+
+    Handler<TManKillNode> handleTManKillNode = new Handler<TManKillNode>() {
+        @Override
+        public void handle(TManKillNode message) {
+            tmanPartners.remove(message.getNode());
         }
     };
 
