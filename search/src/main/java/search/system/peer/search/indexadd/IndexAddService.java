@@ -37,7 +37,7 @@ public class IndexAddService {
     private ArrayList<PeerAddress> topmostCyclonPartners = new ArrayList<PeerAddress>();
 
     // The outstanding index add requests. Used for resending if timeout is reached
-    private HashMap<UUID, LeaderRequestMessage> outstandingLeaderRequests = new HashMap<UUID, LeaderRequestMessage>();
+    private HashMap<UUID, IndexAddRequestMessage> outstandingLeaderRequests = new HashMap<UUID, IndexAddRequestMessage>();
 
     public IndexAddService(Search.TriggerDependency triggerDependency, LeaderElectionService leaderElectionService, IndexingService indexingService, IndexNextIdService indexNextIdService, PeerAddress self, Positive<Network> networkPort, Positive<Timer> timerPort) {
         this.timerPort = timerPort;
@@ -58,6 +58,11 @@ public class IndexAddService {
         addEntryAtClient(key, value, null, UUID.randomUUID());
     }
 
+    /**
+     * Route an index add entry to the leader, or add it to the local index if we are the leader
+     * If not called from the source of the request, relayFor will be used as sender address.
+     * Else a retry will be made on timeout
+     */
     private void addEntryAtClient(String key, String value, PeerAddress relayFor, UUID requestID) {
         if(leaderElectionService.isLeader()) {
             try {
@@ -67,26 +72,25 @@ public class IndexAddService {
                 System.exit(-1);
             }
         } else {
-            LeaderRequestMessage message = null;
-            PeerAddress recipient = null; //leader;
+            IndexAddRequestMessage message = null;
+            PeerAddress recipient = null;
             if(recipient == null) {
                 recipient = getTopmostPartner();
             }
             PeerAddress sender = relayFor == null ? self : relayFor;
 
             if (recipient == null) {
-                message = new LeaderRequestMessage(requestID, key, value, sender);
+                message = new IndexAddRequestMessage(requestID, key, value, sender);
             } else {
-                message = new LeaderRequestMessage(requestID, key, value, sender, recipient);
+                message = new IndexAddRequestMessage(requestID, key, value, sender, recipient);
             }
 
             ScheduleTimeout rst = new ScheduleTimeout(10000);
-            rst.setTimeoutEvent(new LeaderRequestMessageTimeout(rst, requestID, relayFor == null));
+            rst.setTimeoutEvent(new IndexAddRequestMessageTimeout(rst, requestID, relayFor == null));
             triggerDependency.trigger(rst, timerPort);
             outstandingLeaderRequests.put(requestID, message);
 
             if (recipient != null) {
-                //System.out.println(self + ": Adding at: " + recipient);
                 Snapshot.addIndexEntryMessageSent();
                 triggerDependency.trigger(message, networkPort);
             }
@@ -94,13 +98,15 @@ public class IndexAddService {
 
     }
 
-    public Handler<LeaderRequestMessage> handleLeaderRequestMessage = new Handler<LeaderRequestMessage>() {
+    /**
+     * Add the index entry to the local index if we are the leader. Else route the message upwards in the gradient
+     */
+    public Handler<IndexAddRequestMessage> handleIndexAddRequestMessage = new Handler<IndexAddRequestMessage>() {
         @Override
-        public void handle(LeaderRequestMessage request) {
+        public void handle(IndexAddRequestMessage request) {
             if (leaderElectionService.isLeader()) {
                 try {
                     addEntryAtLeader(request.getKey(), request.getValue());
-                    //System.out.println(self.getPeerId() + ": add response to " + request.getPeerSource());
                     Snapshot.addIndexEntryMessageSent();
                     triggerDependency.trigger(new LeaderResponseMessage(request.getRequestId(), self, request.getPeerSource()), networkPort);
                 } catch (IOException e) {
@@ -112,15 +118,20 @@ public class IndexAddService {
         }
     };
 
+    /**
+     * Remove the message from the "retry-table"
+     */
     public Handler<LeaderResponseMessage> handleLeaderResponseMessage = new Handler<LeaderResponseMessage>() {
         @Override
         public void handle(LeaderResponseMessage response) {
-            //System.out.println(self.getPeerId() + ": Successfully added an entry at leader!");
             outstandingLeaderRequests.remove(response.getRequestId());
             Snapshot.addIndexEntryCompleted();
         }
     };
 
+    /**
+     * Return the tman/cyclon partner that's closest to the top of the gradient
+     */
     private PeerAddress getTopmostPartner() {
         PeerAddress top = null;
         for(PeerAddress peer : topmostCyclonPartners) {
@@ -149,10 +160,16 @@ public class IndexAddService {
         return top;
     }
 
+    /**
+     * Collect cyclon samples for more efficient routing to the leader
+     */
     public void receiveCyclonSample (List<PeerAddress> sample) {
         addTopMostCyclonPartners(sample);
     }
 
+    /**
+     * Collect the best cyclon samples for more efficient routing to the leader
+     */
     private void addTopMostCyclonPartners(List<PeerAddress> parnters) {
         for(PeerAddress peer : parnters) {
             if (topmostCyclonPartners.contains(peer)) {
@@ -170,6 +187,9 @@ public class IndexAddService {
         }
     }
 
+    /**
+     * Get the worst ranked top-cyclon partner
+     */
     private PeerAddress getBottomCyclonPartner() {
         PeerAddress bottom = null;
         for(PeerAddress peer : topmostCyclonPartners) {
@@ -184,22 +204,20 @@ public class IndexAddService {
         return bottom;
     }
 
-    public Handler<LeaderRequestMessageTimeout> handleLeaderRequestMessageTimeout = new Handler<LeaderRequestMessageTimeout>() {
-        public void handle(LeaderRequestMessageTimeout message) {
-            LeaderRequestMessage outstanding = outstandingLeaderRequests.get(message.getRequestID());
+    /**
+     * Retry a IndexAddRequestMessage if it reached timeout and we are the original source of the request
+     * If not, just drop it
+     * In both cases, remove the failed peer from the topmost cyclon parnters and from the tman view
+     */
+    public Handler<IndexAddRequestMessageTimeout> handleIndexAddRequestMessageTimeout = new Handler<IndexAddRequestMessageTimeout>() {
+        public void handle(IndexAddRequestMessageTimeout message) {
+            IndexAddRequestMessage outstanding = outstandingLeaderRequests.get(message.getRequestID());
             if (outstanding != null) {
-                //System.out.println(self.getPeerId() + ": Request failed towards " + outstanding.getPeerDestination());
                 topmostCyclonPartners.remove(outstanding.getPeerDestination());
                 leaderElectionService.getTManPartners().remove(outstanding.getPeerDestination());
                 if (message.getRetry()) {
-                    if (leaderElectionService.getTManPartners().contains(outstanding.getPeerDestination()) || topmostCyclonPartners.contains(outstanding.getPeerDestination())) {
-                        throw new RuntimeException("Remove failed!");
-                    }
-                    //System.out.println(self.getPeerId() + ": Retrying request " + outstanding.getRequestId());
                     addEntryAtClient(outstanding.getKey(), outstanding.getValue());
                 }
-            } else {
-                //System.out.println("Succeeded with request " + message.getRequestID() + " at leader " + leader);
             }
         }
     };

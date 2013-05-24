@@ -5,11 +5,11 @@ import se.sics.kompics.timer.Timeout;
 
 import java.util.UUID;
 
-public class LeaderRequestMessageTimeout extends Timeout {
+public class IndexAddRequestMessageTimeout extends Timeout {
     private final UUID requestID;
     private final boolean retry;
 
-	public LeaderRequestMessageTimeout(ScheduleTimeout request, UUID requestID, boolean retry) {
+	public IndexAddRequestMessageTimeout(ScheduleTimeout request, UUID requestID, boolean retry) {
 		super(request);
         this.requestID = requestID;
         this.retry = retry;

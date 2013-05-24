@@ -87,9 +87,9 @@ public final class Search extends ComponentDefinition {
 
         // Index add: Add an index to the swarm, from any client
         indexAddService = new IndexAddService(new TriggerDependency(), leaderElectionService, indexingService, indexNextIdService, self, networkPort, timerPort);
-        subscribe(indexAddService.handleLeaderRequestMessage, networkPort);
+        subscribe(indexAddService.handleIndexAddRequestMessage, networkPort);
         subscribe(indexAddService.handleLeaderResponseMessage, networkPort);
-        subscribe(indexAddService.handleLeaderRequestMessageTimeout, timerPort);
+        subscribe(indexAddService.handleIndexAddRequestMessageTimeout, timerPort);
 
         // Web: Handle add, search and inspect requests through HTTP
         webService = new WebService(new TriggerDependency(), indexAddService, indexingService, self, webPort, timerPort);
