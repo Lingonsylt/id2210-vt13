@@ -123,6 +123,7 @@ public class LeaderElectionService {
             electionParticipants = tmanPartners.size();
 
             for(PeerAddress neighbor : tmanPartners) {
+                Snapshot.leaderElectionMessageSent();
                 triggerDependency.trigger(new LeaderElectionMessage(UUID.randomUUID(), "AM_I_LEGEND", self, neighbor), networkPort);
             }
         }
@@ -145,6 +146,7 @@ public class LeaderElectionService {
                     rst.setTimeoutEvent(timeoutMessage);
                     outstandingElectorHearbeats.put(timeoutMessage.getRequestID(), elector);
                     triggerDependency.trigger(rst, timerPort);
+                    Snapshot.leaderElectionMessageSent();
                     triggerDependency.trigger(new LeaderElectionMessage(timeoutMessage.getRequestID(), "ARE_YOU_ALIVE", self, elector), networkPort);
                 }
             }
@@ -170,6 +172,7 @@ public class LeaderElectionService {
         // Give a heads up to the leader, if we detect that it shouldn't be leader anymore
         } else {
             if (leader != null && !isLowestPeer(leader)) {
+                Snapshot.leaderElectionMessageSent();
                 triggerDependency.trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LOSER", self, leader), networkPort);
             }
         }
@@ -236,9 +239,11 @@ public class LeaderElectionService {
             if (message.getCommand().equals("AM_I_LEGEND")) {
                 if (isLowestPeer(message.getPeerSource())) {
                     // YOU_ARE_LEGEND: Yes vote in leader election
+                    Snapshot.leaderElectionMessageSent();
                     triggerDependency.trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LEGEND", indexingService.getMaxLuceneIndex(), self, message.getPeerSource()), networkPort);
                 } else {
                     // YOU_ARE_LOSER: No vote in leader election
+                    Snapshot.leaderElectionMessageSent();
                     triggerDependency.trigger(new LeaderElectionMessage(UUID.randomUUID(), "YOU_ARE_LOSER", self, message.getPeerSource()), networkPort);
                 }
             // YOU_ARE_LEGEND: Yes vote in leader election

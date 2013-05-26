@@ -1,6 +1,6 @@
 #!/bin/bash
 
-MAX_PEERS=6
+MAX_PEERS=7
 RUNS=5
 echo "# Max peers: $MAX_PEERS" > results.txt
 echo "# Runs: $RUNS" >> results.txt

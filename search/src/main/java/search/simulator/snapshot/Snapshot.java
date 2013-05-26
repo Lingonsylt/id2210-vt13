@@ -49,6 +49,12 @@ public class Snapshot {
     // Number of messages send concerning dissemination of index entries
     private static int indexPropagationMessages = 0;
 
+    // First leader election messages
+    private static int firstLeaderMessages = 0;
+
+    // Second leader election messages
+    private static int secondLeaderMessages = 0;
+
     public static boolean hasAllPeersJoined() {
         return allPeersJoined;
     }
@@ -74,6 +80,16 @@ public class Snapshot {
             }
         }
 	}
+
+    public static void leaderElectionMessageSent() {
+        if (!isReported("firstLeaderMessages") && allPeersJoined) {
+            firstLeaderMessages++;
+        }
+
+        if (isReported("originalLeaderDead") && !isReported("secondLeaderMessages")) {
+            secondLeaderMessages++;
+        }
+    }
 
 //-------------------------------------------------------------------
 	public static void removePeer(PeerAddress address) {
@@ -212,12 +228,14 @@ public class Snapshot {
 
             if (Snapshot.getLeaders().get(0).getPeerId().equals(BigInteger.ONE)) {
                 reportValue("firstLeader", getTicksSinceAllJoined());
+                reportValue("firstLeaderMessages", firstLeaderMessages);
             }
         }
 
         if (numLeaders > lastLeaderCount && isReported("firstLeader") && isReported("originalLeaderDead") && !isReported("secondLeader")) {
             if (Snapshot.getLeaders().get(0).getPeerId().equals(new BigInteger("2"))) {
                 reportValue("secondLeader", (getTicksSinceAllJoined() - (getReportedValueAsInt("originalLeaderDead") + getReportedValueAsInt("deadLeaderConfirmed"))));
+                reportValue("secondLeaderMessages", secondLeaderMessages);
             }
         }
 
