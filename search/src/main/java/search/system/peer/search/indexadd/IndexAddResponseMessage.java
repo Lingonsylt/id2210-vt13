@@ -6,13 +6,13 @@ import common.peer.PeerMessage;
 import java.util.UUID;
 
 
-public class LeaderResponseMessage extends PeerMessage {
+public class IndexAddResponseMessage extends PeerMessage {
 
     private static final long serialVersionUID = 8493601671018888143L;
     private final UUID requestId;
 
     //-------------------------------------------------------------------
-    public LeaderResponseMessage(UUID requestId, PeerAddress source, PeerAddress destination) {
+    public IndexAddResponseMessage(UUID requestId, PeerAddress source, PeerAddress destination) {
         super(source, destination);
         this.requestId = requestId;
     }

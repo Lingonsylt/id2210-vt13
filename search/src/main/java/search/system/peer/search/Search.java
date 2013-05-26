@@ -70,7 +70,7 @@ public final class Search extends ComponentDefinition {
      */
     public void setUpServices(PeerAddress self) {
         // Indexing: Adding and deleting from the local lucene index
-        indexingService = new IndexingService(self, timerPort);
+        indexingService = new IndexingService();
 
         // Index exchange: Exchange index entries between peers
         indexExchangeService = new IndexExchangeService(new TriggerDependency(), indexingService, self, networkPort);

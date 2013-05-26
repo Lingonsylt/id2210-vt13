@@ -23,6 +23,17 @@ import java.util.List;
 import java.util.Map;
 import java.util.logging.Level;
 
+/**
+ * Accept add entry, search and inspect requests
+ * API:
+ *   Search:
+ *     /<nodeid>/search/query=<search query>
+ *   Add:
+ *     /<nodeid>/add/key=<key>&value=<value>
+ *   Inspect:
+ *     /<nodeid>/inspect/
+ *
+ */
 public class WebService {
     private static final Logger logger = LoggerFactory.getLogger(WebService.class);
 
@@ -43,10 +54,13 @@ public class WebService {
         this.webPort = webPort;
     }
 
+    /**
+     * Handle add, search and inspect requests. Return result or error message
+     */
     public Handler<WebRequest> handleWebRequest = new Handler<WebRequest>() {
         public void handle(WebRequest event) {
             if (event == null || self.getPeerAddress() == null) {
-                System.out.println("######  BONKERS!!!!!!!!!!!!!!!!!!!!  ########");
+                System.out.println("#### This should never happen! But sometimes it does?");
                 return;
             }
             if (event.getDestination() != self.getPeerAddress().getId()) {
@@ -55,8 +69,6 @@ public class WebService {
 
             final String SEARCH_COMMAND = "search", ADD_COMMAND = "add", INSPECT_OVERLAY_COMMAND = "inspect";
             List<String> allowedCommands = Arrays.asList(SEARCH_COMMAND, ADD_COMMAND, INSPECT_OVERLAY_COMMAND);
-
-            logger.debug("Handling Webpage Request");
 
             org.mortbay.jetty.Request jettyRequest = event.getRequest();
             String pathInfoString = jettyRequest.getPathInfo();
@@ -131,6 +143,9 @@ public class WebService {
         }
     };
 
+    /**
+     * Helper methods to generate HTML-pages
+     */
     static class WebHelpers {
         public static WebResponse createBadRequestResponse(WebRequest event, String message) {
             return new WebResponse(createBadRequestHtml(message), event, 1, 1);

@@ -10,6 +10,13 @@ public class LeaderElectionMessage extends PeerMessage {
 
     private static final long serialVersionUID = 8493601671018888143L;
     private final UUID requestId;
+    // Possible values for command:
+    // AM_I_LEGEND: Request for a leader election vote
+    // I_AM_LEGEND: The sender is announcing it's the new leader
+    // YOU_ARE_LEGEND: Yes vote in leader election
+    // YOU_ARE_LOSER: No vote in leader election
+    // ARE_YOU_ALIVE: Heartbeat request
+    // I_AM_ALIVE: Heartbeat response
     private final String command;
     private final int nextId;
 
@@ -37,10 +44,5 @@ public class LeaderElectionMessage extends PeerMessage {
     //-------------------------------------------------------------------
     public String getCommand() {
         return command;
-    }
-
-    //-------------------------------------------------------------------
-    public int getSize() {
-        return 0;
     }
 }

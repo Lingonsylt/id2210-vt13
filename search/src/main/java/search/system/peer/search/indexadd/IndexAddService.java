@@ -21,6 +21,9 @@ import java.util.List;
 import java.util.UUID;
 import java.util.logging.Level;
 
+/**
+ * Add entries to the global index and handle routing of add-requests to the leader
+ */
 public class IndexAddService {
     private static final Logger logger = LoggerFactory.getLogger(IndexAddService.class);
 
@@ -108,7 +111,7 @@ public class IndexAddService {
                 try {
                     addEntryAtLeader(request.getKey(), request.getValue());
                     Snapshot.addIndexEntryMessageSent();
-                    triggerDependency.trigger(new LeaderResponseMessage(request.getRequestId(), self, request.getPeerSource()), networkPort);
+                    triggerDependency.trigger(new IndexAddResponseMessage(request.getRequestId(), self, request.getPeerSource()), networkPort);
                 } catch (IOException e) {
                     e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
                 }
@@ -121,9 +124,9 @@ public class IndexAddService {
     /**
      * Remove the message from the "retry-table"
      */
-    public Handler<LeaderResponseMessage> handleLeaderResponseMessage = new Handler<LeaderResponseMessage>() {
+    public Handler<IndexAddResponseMessage> handleLeaderResponseMessage = new Handler<IndexAddResponseMessage>() {
         @Override
-        public void handle(LeaderResponseMessage response) {
+        public void handle(IndexAddResponseMessage response) {
             outstandingLeaderRequests.remove(response.getRequestId());
             Snapshot.addIndexEntryCompleted();
         }

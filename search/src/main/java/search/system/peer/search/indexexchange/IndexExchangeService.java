@@ -14,6 +14,9 @@ import java.io.IOException;
 import java.util.List;
 import java.util.Random;
 
+/**
+ * Exchange index entries with gradient neighbors
+ */
 public class IndexExchangeService {
     private static final Logger logger = LoggerFactory.getLogger(IndexExchangeService.class);
 
@@ -32,6 +35,10 @@ public class IndexExchangeService {
         this.indexingService = indexingService;
     }
 
+    /**
+     * Receive a TMan sample from the Search-layer
+     * Request to exchange index entries with someone higher than us in the gradient (random peer among TMan partners)
+     */
     public void receiveTManSample(List<PeerAddress> tmanSample) {
         if (tmanSample.size() > 1) {
             Snapshot.addIndexPropagationMessageSent();
@@ -39,7 +46,10 @@ public class IndexExchangeService {
         }
     }
 
-
+    /**
+     * Respond with the index entries that are higher than the requesting nodes max, if any
+     * TODO: Doesn't respond if there's nothing to give. Not good for failure detection
+     */
     public Handler<IndexExchangeRequest> handleIndexExchangeRequest = new Handler<IndexExchangeRequest>() {
         @Override
         public void handle(IndexExchangeRequest event) {
@@ -50,10 +60,12 @@ public class IndexExchangeService {
         }
     };
 
+    /**
+     * Add the received lucene documents to our local index
+     */
     public Handler<IndexExchangeResponse> handleIndexExchangeResponse = new Handler<IndexExchangeResponse>() {
         @Override
         public void handle(IndexExchangeResponse event) {
-            //System.out.println(self.toString() + " <== " + event.getSourcePeerID() + ": " + documentListToString(event.documents));
             try {
                 indexingService.addDocuments(event.documents);
             } catch (IOException e) {
