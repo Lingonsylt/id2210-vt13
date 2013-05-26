@@ -129,22 +129,15 @@ public final class SearchSimulator extends ComponentDefinition {
         }
     };
 
-    Handler<AddIndexEntry> handleAddIndexEntry = new Handler<AddIndexEntry>() {
+    Handler<AddIndexEntry> handleAddIndexEntry = new Handler<AddIndexEntry>(AddIndexEntry.class) {
         public void handle(AddIndexEntry event) {
-            /*Random r = new Random();
-            PeerAddress[] peersList = new PeerAddress[peersAddress.size()];
-            peersAddress.values().toArray(peersList);
-            PeerAddress randomPeer = peersList[r.nextInt(peersAddress.size())];*/
             trigger(new SimulationAddIndexEntry(event.getKey(), event.getValue(), firstAddedPeer, firstAddedPeer), network);
         }
     };
 
 //-------------------------------------------------------------------	
     Handler<GenerateReport> handleGenerateReport = new Handler<GenerateReport>() {
-
         public void handle(GenerateReport event) {
-            //Snapshot.report();
-            //#tman.simulator.snapshot.Snapshot.report();
         }
     };
 

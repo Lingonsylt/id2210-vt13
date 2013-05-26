@@ -10,23 +10,44 @@ import search.system.peer.search.Search;
 
 public class Snapshot {
 	private static HashMap<PeerAddress, PeerInfo> peers = new HashMap<PeerAddress, PeerInfo>();
-	private static int counter = 0;
-	private static String FILENAME = "aggregation.out";
-    private static int lastLeaderCount = 0;
-    private static float lastIndexDistPercentage = 0;
-    private static int maxLeaderIndex = 0;
-    private static int lastMaxLuceneIndex = 0;
-    private static boolean allPeersJoined = false;
-    private static int allPeersTotal = System.getenv("PEERS") != null ? Integer.parseInt(System.getenv("PEERS")) : 200;
-    private static int allPeersJoinedTime;
-    private static HashMap<String, String> reportedValues = new HashMap<String, String>();
-    private static PeerAddress firstPeer = null;
-    private static int indexAddMessages = 0;
-    private static int indexPropagationMessages = 0;
 
-    public static int getCounter() {
-        return counter;
-    }
+    private static String FILENAME = "aggregation.out";
+
+    // Gossip round count
+    private static int counter = 0;
+
+    // The number of leaders last round
+    private static int lastLeaderCount = 0;
+
+    // The percent of index distribution last round
+    private static float lastIndexDistPercentage = 0;
+
+    // The highest lucene index of the leader
+    private static int maxLeaderIndex = 0;
+
+    // The highest lucene index of the leader last round
+    private static int lastMaxLuceneIndex = 0;
+
+    // True if all peers in Simulation1 has joined
+    private static boolean allPeersJoined = false;
+
+    // The total number of peers in Simulation1 that will join
+    private static int allPeersTotal = System.getenv("PEERS") != null ? Integer.parseInt(System.getenv("PEERS")) : 200;
+
+    // The time in gossip rounds when all peers joined
+    private static int allPeersJoinedTime;
+
+    // All reported statistics
+    private static HashMap<String, String> reportedValues = new HashMap<String, String>();
+
+    // The first peer to join. Used to measure gossip rounds in a hacky way
+    private static PeerAddress firstPeer = null;
+
+    // Number of messages sent concerning the add of a new entry
+    private static int indexAddMessages = 0;
+
+    // Number of messages send concerning dissemination of index entries
+    private static int indexPropagationMessages = 0;
 
     public static boolean hasAllPeersJoined() {
         return allPeersJoined;
@@ -38,11 +59,6 @@ public class Snapshot {
         }
         return counter - allPeersJoinedTime;
     }
-
-//-------------------------------------------------------------------
-	public static void init(int numOfStripes) {
-		FileIO.write("", FILENAME);
-	}
 
 //-------------------------------------------------------------------
 	public static void addPeer(PeerAddress address) {
@@ -90,16 +106,6 @@ public class Snapshot {
         peerInfo.updateSearch(search);
     }
 
-//-------------------------------------------------------------------
-	public static void updateCyclonPartners(PeerAddress address, ArrayList<PeerAddress> partners) {
-		PeerInfo peerInfo = peers.get(address);
-		
-		if (peerInfo == null)
-			return;
-		
-		peerInfo.updateCyclonPartners(partners);
-	}
-
     public static void addIndexEntryInitiated() {
         if(!isReported("addIndexEntryInitiated")) {
             indexAddMessages = 0;
@@ -118,6 +124,7 @@ public class Snapshot {
     private static void indexEntryPropagationComplete() {
         reportValue("indexPropagationComplete", getTicksSinceAllJoined() - getReportedValueAsInt("indexPropagationStart"));
         reportValue("indexPropagationTotalMessages", indexPropagationMessages);
+        shutdownSimulation();
     }
 
     public static void addIndexEntryCompleted() {
@@ -125,7 +132,7 @@ public class Snapshot {
             reportValue("addIndexEntryTotalMessages", indexAddMessages);
             reportValue("addIndexEntryCompleted", getTicksSinceAllJoined() - getReportedValueAsInt("addIndexEntryInitiated"));
         }
-        shutdownSimulation();
+
     }
 
     public static void shutdownSimulation() {
@@ -196,9 +203,6 @@ public class Snapshot {
     }
 
     public static String createReport() {
-        boolean createReport = false;
-        String o = "";
-
         if (!isReported("numberOfPeers")) {
             reportValue("numberOfPeers", allPeersTotal);
         }
@@ -208,65 +212,29 @@ public class Snapshot {
 
             if (Snapshot.getLeaders().get(0).getPeerId().equals(BigInteger.ONE)) {
                 reportValue("firstLeader", getTicksSinceAllJoined());
-                //throw new RuntimeException("First leader is not correct leader! Expected 1, was " + Snapshot.getLeaders().get(0).getPeerId());
             }
         }
 
         if (numLeaders > lastLeaderCount && isReported("firstLeader") && isReported("originalLeaderDead") && !isReported("secondLeader")) {
             if (Snapshot.getLeaders().get(0).getPeerId().equals(new BigInteger("2"))) {
                 reportValue("secondLeader", (getTicksSinceAllJoined() - (getReportedValueAsInt("originalLeaderDead") + getReportedValueAsInt("deadLeaderConfirmed"))));
-                //throw new RuntimeException("Second leader is not correct leader! Expected 2, was " + Snapshot.getLeaders().get(0).getPeerId());
             }
         }
 
-        if (false && numLeaders != lastLeaderCount) {
-            lastLeaderCount = numLeaders;
-            o += "# num leaders: " + numLeaders;
-            for (PeerAddress leader : getLeaders()) {
-                o += "(" + leader + ")";
+        float indexDistPercentage = getIndexDistPercentage();
+        if (indexDistPercentage != lastIndexDistPercentage) {
+            if ((int)indexDistPercentage == 100 && isReported("indexPropagationStart") && !isReported("indexPropagationComplete")) {
+                Snapshot.indexEntryPropagationComplete();
             }
-            o += "\n";
-            createReport = true;
-        }
-
-        if (counter % 1 == 0) {
-            float indexDistPercentage = getIndexDistPercentage();
-            if (indexDistPercentage != lastIndexDistPercentage && (true || (int)indexDistPercentage == 100 || (int)indexDistPercentage == 0)) {
-                if ((int)indexDistPercentage == 100 && isReported("indexPropagationStart") && !isReported("indexPropagationComplete")) {
-                    Snapshot.indexEntryPropagationComplete();
-                }
-                lastIndexDistPercentage = indexDistPercentage;
-                //o += "# index dist %: " + (int)indexDistPercentage + "\n";
-                //createReport = true;
-            }
+            lastIndexDistPercentage = indexDistPercentage;
         }
 
         if (lastMaxLuceneIndex != maxLeaderIndex) {
             lastMaxLuceneIndex = maxLeaderIndex;
-            /*o += "# max index: " + maxLeaderIndex+ "\n";
-            createReport = true;*/
         }
 
-        if (createReport) {
-            return o.trim();
-        } else {
-            return null;
-        }
+        return null;
     }
-
-    /*
-    boolean newLowestPeer = false;
-        for (PeerAddress peer : peersList) {
-            if (lowestPeerID == null || peer.getPeerId().compareTo(lowestPeerID) == -1) {
-                lowestPeerID = peer.getPeerId();
-                newLowestPeer = true;
-            }
-        }
-
-        if (newLowestPeer) {
-            System.out.println("Lowest peer: " + lowestPeerID);
-        }
-     */
 
     public static int getNumberOfLeaders() {
         return getLeaders().size();
@@ -294,54 +262,7 @@ public class Snapshot {
         }
         counter++;
 
-        //if (counter % 10000 == 1) {
-            String report = createReport();
-            if (report != null) System.out.println(report);
-        //}
+        String report = createReport();
+        if (report != null) System.out.println(report);
 	}
-
-//-------------------------------------------------------------------
-	private static String reportNetworkState() {
-		String str = new String("---\n");
-		int totalNumOfPeers = peers.size();
-		str += "total number of peers: " + totalNumOfPeers + "\n";
-
-		return str;		
-	}
-	
-//-------------------------------------------------------------------
-	private static String reportDetailes() {
-		PeerInfo peerInfo;
-		String str = new String("---\n");
-
-		for (PeerAddress peer : peers.keySet()) {
-			peerInfo = peers.get(peer);
-		
-			str += "peer: " + peer;
-			str += ", cyclon parters: " + peerInfo.getCyclonPartners();
-			str += "\n";
-		}
-		
-		return str;
-	}
-
-//-------------------------------------------------------------------
-	private static String verifyNetworkSize() {
-		PeerInfo peerInfo;
-		int correct = 0;
-		double estimated = 0;
-		String str = new String("---\n");
-
-		for (PeerAddress peer : peers.keySet()) {
-			peerInfo = peers.get(peer);
-			estimated = 1 / peerInfo.getNum();
-			str += peer + " --> estimated size: " + estimated + "\n";
-			if (Math.abs(estimated - peers.size()) <= peers.size() * 0.02)
-				correct++;
-		}
-		
-		str += "estimated correctly: " + correct + "\n";
-		return str;
-	}
-
 }

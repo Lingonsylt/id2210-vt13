@@ -10,16 +10,8 @@ import java.util.TreeMap;
 
 public class Snapshot {
 	private static TreeMap<PeerAddress, PeerInfo> peers = new TreeMap<PeerAddress, PeerInfo>();
-	private static int counter = 0;
-	private static String FILENAME = "tman.out";
-    private static BigInteger lowestPeerID = null;
     private static int allPeersTotal = System.getenv("PEERS") != null ? Integer.parseInt(System.getenv("PEERS")) : 200;
     private static boolean allPeersJoined = false;
-
-//-------------------------------------------------------------------
-	public static void init(int numOfStripes) {
-		FileIO.write("", FILENAME);
-	}
 
 //-------------------------------------------------------------------
 	public static void addPeer(PeerAddress address) {
@@ -34,11 +26,6 @@ public class Snapshot {
     public static boolean hasAllPeersJoined() {
         return allPeersJoined;
     }
-
-//-------------------------------------------------------------------
-	public static void removePeer(PeerAddress address) {
-		peers.remove(address);
-	}
 
 //-------------------------------------------------------------------
 	public static void updateTManPartners(PeerAddress address, ArrayList<PeerAddress> partners) {
@@ -60,6 +47,9 @@ public class Snapshot {
 		peerInfo.updateCyclonPartners(partners);
 	}
 
+    /**
+     * Create a .dot-file containing the overlay, draw a png of it with 'neato', and display it with 'eog'
+     */
     public static void inspectOverlay(BigInteger highlightPeer) {
         PeerAddress[] peersList = new PeerAddress[peers.size()];
         peers.keySet().toArray(peersList);
@@ -73,30 +63,11 @@ public class Snapshot {
             p = Runtime.getRuntime().exec("eog /home/lingon/dev/dsearch/graph.png");
             p.waitFor();
         } catch (IOException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            e.printStackTrace();
 
         } catch (InterruptedException e) {
-            e.printStackTrace();  //To change body of catch statement use File | Settings | File Templates.
+            e.printStackTrace();
         }
-    }
-//-------------------------------------------------------------------
-	public static void report() {
-
-		PeerAddress[] peersList = new PeerAddress[peers.size()];
-		peers.keySet().toArray(peersList);
-        counter++;
-
-        if (counter == -3500) {
-            System.out.println("Number of peers: " + peers.size());
-
-            System.exit(1);
-            Snapshot.inspectOverlay(null);
-            System.exit(1);
-        }
-		//System.out.println(str);
-		//FileIO.append(str, FILENAME);
-
-
     }
 
     public static void printDotFile(PeerAddress[] peersList, BigInteger highlightPeer) {
@@ -119,36 +90,7 @@ public class Snapshot {
 
         output += "}\n";
 
-        //System.out.println(output);
+        // TODO: Fix the local machine specific paths
         FileIO.write(output, "/home/lingon/dev/dsearch/graph.dot");
     }
-
-//-------------------------------------------------------------------
-	private static String reportNetworkState() {
-		String str = new String("---\n");
-		int totalNumOfPeers = peers.size() - 1;
-		str += "total number of peers: " + totalNumOfPeers + "\n";
-
-		return str;		
-	}
-	
-//-------------------------------------------------------------------
-	private static String reportDetails() {
-		PeerInfo peerInfo;
-		String str = new String("---\n");
-
-		for (PeerAddress peer : peers.keySet()) {
-
-			peerInfo = peers.get(peer);
-
-			str += "peer: " + peer;
-			str += ", cyclon parters: " + peerInfo.getCyclonPartners();
-			str += ", tman parters (" + peerInfo.getTManPartners().size() + "): " + peerInfo.getTManPartners();
-			str += "\n";
-		}
-		
-		return str;
-	}
-	
-
 }
